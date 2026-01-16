@@ -277,6 +277,63 @@ describe('AnthropicProvider', () => {
       expect(lastChunk.meta?.tokens?.inputTokens).toBe(15);
       expect(lastChunk.meta?.tokens?.outputTokens).toBe(20);
     });
+
+    it('should_yieldToolCalls_when_streamingToolUse', async () => {
+      const streamEvents = [
+        { type: 'message_start', message: { usage: { input_tokens: 5 } } },
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: 'tool_123',
+            name: 'get_weather',
+            input: {},
+          },
+        },
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{"location":"San Francisco"}' },
+        },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', usage: { output_tokens: 5 }, delta: { stop_reason: 'tool_use' } },
+      ];
+
+      mockClient.messages.create.mockResolvedValueOnce(
+        (async function* () {
+          for (const event of streamEvents) {
+            yield event;
+          }
+        })()
+      );
+
+      const chunks = await collectStream(provider.stream(createMockRequest({
+        model: 'claude-3-sonnet',
+        tools: createMockTools(),
+      })));
+
+      const toolCallChunk = chunks.find((chunk) => chunk.toolCalls?.length);
+      expect(toolCallChunk?.toolCalls?.[0]?.id).toBe('tool_123');
+      expect(toolCallChunk?.toolCalls?.[0]?.function?.name).toBe('get_weather');
+    });
+
+    it('should_passTools_when_streaming', async () => {
+      mockClient.messages.create.mockResolvedValueOnce(
+        (async function* () {
+          yield { type: 'message_start', message: { usage: { input_tokens: 5 } } };
+          yield { type: 'message_delta', usage: { output_tokens: 5 }, delta: { stop_reason: 'end_turn' } };
+        })()
+      );
+
+      await collectStream(provider.stream(createMockRequest({
+        model: 'claude-3-sonnet',
+        tools: createMockTools(),
+      })));
+
+      const callArgs = mockClient.messages.create.mock.calls[0][0];
+      expect(callArgs.tools).toBeDefined();
+    });
   });
 
   describe('listModels', () => {

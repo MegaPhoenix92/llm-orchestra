@@ -49,6 +49,7 @@ export type {
   ProviderError,
   TimeoutError,
   AllProvidersFailedError,
+  ProviderAttempt,
 } from './types/index.js';
 
 // Provider exports
@@ -79,7 +80,8 @@ export function createOrchestra(config: {
   googleApiKey?: string;
   enableTracing?: boolean;
   enableCostTracking?: boolean;
-}): InstanceType<typeof Orchestra> {
+}): import('./orchestra.js').Orchestra {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Orchestra: OrchestraClass } = require('./orchestra.js');
 
   return new OrchestraClass({

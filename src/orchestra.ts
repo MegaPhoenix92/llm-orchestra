@@ -7,6 +7,7 @@ import type {
   OrchestraConfig,
   CompletionRequest,
   CompletionResponse,
+  CompletionMeta,
   CompletionStream,
   ProviderName,
   ProviderAdapter,
@@ -89,7 +90,7 @@ export class Orchestra {
         });
 
         // Update stats
-        this.updateStats(response);
+        this.updateStats(response.meta);
 
         // Check cost alerts
         if (this.config.observability?.costTracking?.enabled) {
@@ -98,7 +99,8 @@ export class Orchestra {
 
         return response;
       },
-      { 'orchestra.trace_id': traceId }
+      { 'orchestra.trace_id': traceId },
+      { traceId }
     );
   }
 
@@ -107,10 +109,18 @@ export class Orchestra {
    */
   async *stream(request: CompletionRequest): CompletionStream {
     const traceId = this.tracer.generateTraceId();
-    const span = this.tracer.startSpan('orchestra.stream', {
-      'orchestra.model': request.model,
-      'orchestra.trace_id': traceId,
-    });
+    const span = this.tracer.startSpan(
+      'orchestra.stream',
+      {
+        'orchestra.model': request.model,
+        'orchestra.trace_id': traceId,
+      },
+      { traceId }
+    );
+    let finalMeta: Pick<
+      CompletionMeta,
+      'provider' | 'model' | 'tokens' | 'cost' | 'latencyMs'
+    > | undefined;
 
     try {
       const stream = this.router.routeStream(request);
@@ -120,18 +130,42 @@ export class Orchestra {
         if (chunk.meta) {
           chunk.meta.traceId = traceId;
 
-          // Record to tracer
-          this.tracer.recordLLMCall(span, {
-            provider: chunk.meta.provider!,
-            model: chunk.meta.model!,
-            tokens: chunk.meta.tokens as any,
-            cost: chunk.meta.cost,
-            latencyMs: chunk.meta.latencyMs,
-            cached: chunk.meta.cached,
-          });
+          if (chunk.meta.provider && chunk.meta.model) {
+            this.tracer.recordLLMCall(span, {
+              provider: chunk.meta.provider,
+              model: chunk.meta.model,
+              tokens: chunk.meta.tokens,
+              cost: chunk.meta.cost,
+              latencyMs: chunk.meta.latencyMs,
+              cached: chunk.meta.cached,
+            });
+          }
+
+          if (
+            chunk.meta.provider &&
+            chunk.meta.model &&
+            chunk.meta.tokens &&
+            chunk.meta.cost !== undefined &&
+            chunk.meta.latencyMs !== undefined
+          ) {
+            finalMeta = {
+              provider: chunk.meta.provider,
+              model: chunk.meta.model,
+              tokens: chunk.meta.tokens,
+              cost: chunk.meta.cost,
+              latencyMs: chunk.meta.latencyMs,
+            };
+          }
         }
 
         yield chunk;
+      }
+
+      if (finalMeta) {
+        this.updateStats(finalMeta);
+        if (this.config.observability?.costTracking?.enabled) {
+          this.checkCostAlerts(finalMeta.cost);
+        }
       }
 
       span.setStatus('ok');
@@ -231,8 +265,10 @@ export class Orchestra {
     };
   }
 
-  private updateStats(response: CompletionResponse): void {
-    const { provider, model, tokens, cost, latencyMs } = response.meta;
+  private updateStats(
+    meta: Pick<CompletionMeta, 'provider' | 'model' | 'tokens' | 'cost' | 'latencyMs'>
+  ): void {
+    const { provider, model, tokens, cost, latencyMs } = meta;
 
     // Global stats
     this.stats.totalRequests++;

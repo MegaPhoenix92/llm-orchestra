@@ -129,12 +129,12 @@ describe('GoogleProvider', () => {
       const startChatArgs = mockModel.startChat.mock.calls[0][0];
       // History should be all but the last message
       expect(startChatArgs.history).toEqual([
-        { role: 'user', parts: 'Hello!' },
-        { role: 'model', parts: 'Hi there!' },
+        { role: 'user', parts: [{ text: 'Hello!' }] },
+        { role: 'model', parts: [{ text: 'Hi there!' }] },
       ]);
 
       // Last message should be sent separately
-      expect(mockChat.sendMessage).toHaveBeenCalledWith('How are you?');
+      expect(mockChat.sendMessage).toHaveBeenCalledWith([{ text: 'How are you?' }]);
     });
 
     it('should_resolveModelAliases_when_aliasProvided', async () => {
@@ -225,7 +225,7 @@ describe('GoogleProvider', () => {
       await provider.complete({ model: 'gemini-1.5-pro', messages });
 
       // Should add an empty user message
-      expect(mockChat.sendMessage).toHaveBeenCalledWith('');
+      expect(mockChat.sendMessage).toHaveBeenCalledWith([{ text: '' }]);
     });
   });
 

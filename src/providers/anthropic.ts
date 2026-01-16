@@ -131,20 +131,54 @@ export class AnthropicProvider extends BaseProvider {
       ...(request.temperature !== undefined && { temperature: request.temperature }),
       ...(request.topP !== undefined && { top_p: request.topP }),
       ...(request.stop && { stop_sequences: request.stop }),
+      ...(request.tools && { tools: this.convertTools(request.tools) }),
     };
 
     const stream = await this.client.messages.create(anthropicRequest);
 
     let inputTokens = 0;
     let outputTokens = 0;
+    const toolUses = new Map<number, { id: string; name: string; baseInputJson: string; deltaInputJson: string }>();
 
     for await (const event of stream as AsyncIterable<Anthropic.MessageStreamEvent>) {
       if (event.type === 'message_start' && event.message.usage) {
         inputTokens = event.message.usage.input_tokens;
+      } else if (event.type === 'content_block_start') {
+        const contentBlock = event.content_block;
+        if (contentBlock.type === 'tool_use') {
+          toolUses.set(event.index, {
+            id: contentBlock.id,
+            name: contentBlock.name,
+            baseInputJson: contentBlock.input ? JSON.stringify(contentBlock.input) : '',
+            deltaInputJson: '',
+          });
+        }
       } else if (event.type === 'content_block_delta') {
         const delta = event.delta;
+        if ('partial_json' in delta) {
+          const toolUse = toolUses.get(event.index);
+          if (toolUse) {
+            toolUse.deltaInputJson += delta.partial_json;
+          }
+        }
         if ('text' in delta) {
           yield { content: delta.text };
+        }
+      } else if (event.type === 'content_block_stop') {
+        const toolUse = toolUses.get(event.index);
+        if (toolUse) {
+          const argumentsJson = toolUse.deltaInputJson || toolUse.baseInputJson || '{}';
+          yield {
+            toolCalls: [{
+              id: toolUse.id,
+              type: 'function',
+              function: {
+                name: toolUse.name,
+                arguments: argumentsJson,
+              },
+            }],
+          };
+          toolUses.delete(event.index);
         }
       } else if (event.type === 'message_delta') {
         if (event.usage) {

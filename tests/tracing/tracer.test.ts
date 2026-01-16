@@ -376,6 +376,13 @@ describe('Tracer', () => {
       expect(data.attributes['attr1']).toBe('value1');
       expect(data.attributes['attr2']).toBe(42);
     });
+
+    it('should_useProvidedTraceId_when_overrideProvided', () => {
+      const span = tracer.startSpan('operation', undefined, { traceId: 'trace_custom' });
+      const context = span.getContext();
+
+      expect(context.traceId).toBe('trace_custom');
+    });
   });
 
   describe('trace', () => {
@@ -397,6 +404,29 @@ describe('Tracer', () => {
       });
 
       expect(receivedSpan).toBeInstanceOf(Span);
+    });
+
+    it('should_useProvidedTraceId_when_traceOptionsProvided', async () => {
+      const traceId = 'trace_custom';
+      let spanTraceId = '';
+
+      await tracer.trace('operation', async (span) => {
+        spanTraceId = span.getContext().traceId;
+      }, undefined, { traceId });
+
+      expect(spanTraceId).toBe(traceId);
+    });
+
+    it('should_restoreSpanStack_when_traceCompletes', async () => {
+      let firstTraceId = '';
+
+      await tracer.trace('operation', async (span) => {
+        firstTraceId = span.getContext().traceId;
+      });
+
+      const nextSpan = tracer.startSpan('next-operation');
+      expect(nextSpan.getContext().traceId).not.toBe(firstTraceId);
+      nextSpan.end();
     });
 
     it('should_setStatusOk_when_functionSucceeds', async () => {

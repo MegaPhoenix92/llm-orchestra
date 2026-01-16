@@ -291,6 +291,67 @@ describe('OpenAIProvider', () => {
       expect(callArgs.stream).toBe(true);
       expect(callArgs.stream_options).toEqual({ include_usage: true });
     });
+
+    it('should_yieldToolCalls_when_streamingToolCalls', async () => {
+      const streamChunks = [
+        {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                id: 'call_123',
+                type: 'function',
+                function: {
+                  name: 'get_weather',
+                  arguments: '{"location":"San Francisco"}',
+                },
+              }],
+            },
+            finish_reason: null,
+          }],
+        },
+        {
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        },
+      ];
+
+      mockClient.chat.completions.create.mockResolvedValueOnce(
+        (async function* () {
+          for (const chunk of streamChunks) {
+            yield chunk;
+          }
+        })()
+      );
+
+      const request = createMockRequest({
+        model: 'gpt-4',
+        tools: createMockTools(),
+        toolChoice: 'auto',
+      });
+      const chunks = await collectStream(provider.stream(request));
+
+      const toolCallChunk = chunks.find((chunk) => chunk.toolCalls?.length);
+      expect(toolCallChunk?.toolCalls?.[0]?.id).toBe('call_123');
+      expect(toolCallChunk?.toolCalls?.[0]?.function?.name).toBe('get_weather');
+    });
+
+    it('should_passToolingOptions_when_streaming', async () => {
+      mockClient.chat.completions.create.mockResolvedValueOnce(
+        (async function* () {
+          yield { choices: [{ delta: { content: 'Test' }, finish_reason: 'stop' }] };
+        })()
+      );
+
+      await collectStream(provider.stream(createMockRequest({
+        model: 'gpt-4',
+        tools: createMockTools(),
+        toolChoice: 'auto',
+      })));
+
+      const callArgs = mockClient.chat.completions.create.mock.calls[0][0];
+      expect(callArgs.tools).toBeDefined();
+      expect(callArgs.tool_choice).toBe('auto');
+    });
   });
 
   describe('listModels', () => {
