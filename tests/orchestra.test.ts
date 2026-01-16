@@ -3,12 +3,7 @@
  * Tests for the main Orchestra class with cost tracking and statistics
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  createMockRequest,
-  createMockResponse,
-  collectStream,
-} from './utils/mocks.js';
+import { describe, it, expect } from 'vitest';
 import type { OrchestraConfig, CompletionResponse, ProviderName } from '../src/types/index.js';
 
 // We test the Orchestra class through its public interface

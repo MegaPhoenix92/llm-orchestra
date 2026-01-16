@@ -10,7 +10,6 @@ import {
   createMockResponse,
   createMockProviderAdapter,
   createMockRateLimitError,
-  createMockTimeoutError,
   createMockNetworkError,
   collectStream,
 } from '../utils/mocks.js';

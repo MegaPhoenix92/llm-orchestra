@@ -3,7 +3,7 @@
  * Tests for provider factory and model mapping functions
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   createProviders,
   getProviderForModel,
