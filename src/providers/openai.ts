@@ -16,7 +16,7 @@ import type {
   ToolCall,
 } from '../types/index.js';
 
-// Pricing as of Jan 2024 (per 1K tokens)
+// Pricing as of Jan 2026 (per 1K tokens)
 const MODEL_PRICING: Record<string, { inputPer1k: number; outputPer1k: number }> = {
   'gpt-4-turbo': { inputPer1k: 0.01, outputPer1k: 0.03 },
   'gpt-4-turbo-preview': { inputPer1k: 0.01, outputPer1k: 0.03 },
