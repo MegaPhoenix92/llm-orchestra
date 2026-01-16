@@ -5,142 +5,98 @@
  * @packageDocumentation
  */
 
-export interface OrchestraConfig {
-  providers: ProviderConfig;
-  observability?: ObservabilityConfig;
-  cache?: CacheConfig;
-}
+// Main Orchestra class
+export { Orchestra, default } from './orchestra.js';
+export type { OrchestraStats } from './orchestra.js';
 
-export interface ProviderConfig {
-  anthropic?: { apiKey: string };
-  openai?: { apiKey: string };
-  google?: { apiKey: string };
-}
+// Type exports
+export type {
+  // Provider types
+  ProviderName,
+  ProviderCredentials,
+  ProvidersConfig,
+  ProviderAdapter,
 
-export interface ObservabilityConfig {
-  tracing?: boolean;
-  metrics?: boolean;
-  costTracking?: boolean;
-  exportEndpoint?: string;
-}
+  // Message types
+  Message,
+  MessageRole,
+  ToolCall,
+  AssistantMessage,
+  ToolDefinition,
 
-export interface CacheConfig {
-  enabled?: boolean;
-  ttlSeconds?: number;
-  maxSize?: number;
-}
+  // Request/Response types
+  CompletionRequest,
+  CompletionResponse,
+  CompletionMeta,
+  TokenUsage,
 
-export interface Message {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+  // Streaming types
+  StreamChunk,
+  CompletionStream,
 
-export interface CompletionRequest {
-  model: string;
-  messages: Message[];
-  temperature?: number;
-  maxTokens?: number;
-  fallback?: string[];
-  tags?: string[];
-}
+  // Configuration types
+  OrchestraConfig,
+  TracingConfig,
+  MetricsConfig,
+  CostTrackingConfig,
+  CacheConfig,
+  RetryConfig,
+  ObservabilityConfig,
 
-export interface CompletionResponse {
-  content: string;
-  meta: {
-    latency: number;
-    tokens: { input: number; output: number };
-    cost: number;
-    traceId: string;
-    model: string;
-    provider: string;
-  };
-}
+  // Error types
+  OrchestraError,
+  RateLimitError,
+  ProviderError,
+  TimeoutError,
+  AllProvidersFailedError,
+} from './types/index.js';
 
-/**
- * Main Orchestra class for LLM orchestration and observability
- */
-export class Orchestra {
-  private config: OrchestraConfig;
+// Provider exports
+export {
+  BaseProvider,
+  AnthropicProvider,
+  OpenAIProvider,
+  GoogleProvider,
+  createProviders,
+  getProviderForModel,
+  getModelsForProvider,
+} from './providers/index.js';
 
-  constructor(config: OrchestraConfig) {
-    this.config = config;
-  }
+// Router exports
+export { Router } from './routing/index.js';
+export type { RouterConfig, RouteResult } from './routing/index.js';
 
-  /**
-   * Send a completion request with unified interface
-   */
-  async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    const startTime = Date.now();
-    const traceId = this.generateTraceId();
-
-    // TODO: Implement provider routing
-    // TODO: Implement failover logic
-    // TODO: Implement caching
-    // TODO: Implement cost tracking
-
-    // Placeholder response
-    return {
-      content: 'Orchestra SDK is under development',
-      meta: {
-        latency: Date.now() - startTime,
-        tokens: { input: 0, output: 0 },
-        cost: 0,
-        traceId,
-        model: request.model,
-        provider: this.getProvider(request.model),
-      },
-    };
-  }
-
-  private generateTraceId(): string {
-    return `orch_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  }
-
-  private getProvider(model: string): string {
-    if (model.includes('claude')) return 'anthropic';
-    if (model.includes('gpt')) return 'openai';
-    if (model.includes('gemini')) return 'google';
-    return 'unknown';
-  }
-}
+// Tracing exports
+export { Tracer, Span, createNoopTracer } from './tracing/index.js';
+export type { SpanContext, SpanEvent, SpanData } from './tracing/index.js';
 
 /**
- * Tracing decorator for complex flows
+ * Create an Orchestra instance with minimal configuration
  */
-export async function trace<T>(
-  name: string,
-  fn: (span: Span) => Promise<T>
-): Promise<T> {
-  const span = new Span(name);
-  try {
-    return await fn(span);
-  } finally {
-    span.end();
-  }
+export function createOrchestra(config: {
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  googleApiKey?: string;
+  enableTracing?: boolean;
+  enableCostTracking?: boolean;
+}): InstanceType<typeof Orchestra> {
+  const { Orchestra: OrchestraClass } = require('./orchestra.js');
+
+  return new OrchestraClass({
+    providers: {
+      ...(config.anthropicApiKey && {
+        anthropic: { apiKey: config.anthropicApiKey },
+      }),
+      ...(config.openaiApiKey && {
+        openai: { apiKey: config.openaiApiKey },
+      }),
+      ...(config.googleApiKey && {
+        google: { apiKey: config.googleApiKey },
+      }),
+    },
+    observability: {
+      tracing: config.enableTracing ? { enabled: true } : undefined,
+      costTracking: config.enableCostTracking ? { enabled: true } : undefined,
+    },
+  });
 }
-
-/**
- * Span class for distributed tracing
- */
-export class Span {
-  private name: string;
-  private startTime: number;
-  private events: Array<{ name: string; attributes: Record<string, unknown> }> = [];
-
-  constructor(name: string) {
-    this.name = name;
-    this.startTime = Date.now();
-  }
-
-  addEvent(name: string, attributes: Record<string, unknown> = {}): void {
-    this.events.push({ name, attributes });
-  }
-
-  end(): void {
-    const duration = Date.now() - this.startTime;
-    // TODO: Export to observability backend
-    console.log(`[Span] ${this.name} completed in ${duration}ms with ${this.events.length} events`);
-  }
-}
-
-export default Orchestra;
