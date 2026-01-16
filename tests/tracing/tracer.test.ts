@@ -481,6 +481,67 @@ describe('Tracer', () => {
       childSpan.end();
       parentSpan.end();
     });
+
+    it('should_treatEmptyTraceId_asNoOverride_when_currentSpanExists', () => {
+      // Start a parent span
+      const parentSpan = tracer.startSpan('parent-operation');
+      const parentContext = parentSpan.getContext();
+
+      // Start a span with empty string traceId (e.g., from optional header that parsed to empty)
+      const childSpan = tracer.startSpan('child-operation', undefined, { traceId: '' });
+      const childContext = childSpan.getContext();
+
+      // Empty string should be treated as "no override", so inherit from currentSpan
+      expect(childContext.traceId).toBe(parentContext.traceId);
+      expect(childContext.parentSpanId).toBe(parentContext.spanId);
+
+      // Cleanup
+      childSpan.end();
+      parentSpan.end();
+    });
+
+    it('should_generateNewTraceId_when_emptyStringProvidedWithNoCurrentSpan', () => {
+      // Ensure no currentSpan by starting fresh
+      tracer.clearSpans();
+
+      // Start a span with empty string traceId
+      const span = tracer.startSpan('operation', undefined, { traceId: '' });
+      const context = span.getContext();
+
+      // Should generate a new traceId (not empty string)
+      expect(context.traceId).toBeTruthy();
+      expect(context.traceId).not.toBe('');
+      expect(context.parentSpanId).toBeUndefined();
+
+      span.end();
+    });
+
+    it('should_notCreateInvalidTraceGraph_when_emptyTraceIdWithCurrentSpan', () => {
+      // This test ensures we don't create the invalid state where:
+      // - traceId is empty (from empty string override)
+      // - parentSpanId is set (from currentSpan)
+      // Which would create an invalid trace graph
+
+      const parentSpan = tracer.startSpan('parent-operation');
+      const parentContext = parentSpan.getContext();
+
+      // With empty traceId, we should inherit properly, not get empty traceId + parentSpanId
+      const childSpan = tracer.startSpan('child-operation', undefined, { traceId: '' });
+      const childContext = childSpan.getContext();
+
+      // Either traceId should match parent (inherited) or parentSpanId should be undefined (new trace)
+      // We expect inheritance since empty string = no override
+      const hasValidTraceGraph =
+        (childContext.traceId === parentContext.traceId && childContext.parentSpanId === parentContext.spanId) ||
+        (childContext.traceId !== '' && childContext.parentSpanId === undefined);
+
+      expect(hasValidTraceGraph).toBe(true);
+      // Specifically verify the empty string doesn't become the traceId
+      expect(childContext.traceId).not.toBe('');
+
+      childSpan.end();
+      parentSpan.end();
+    });
   });
 
   describe('trace', () => {

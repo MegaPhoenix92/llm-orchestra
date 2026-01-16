@@ -45,10 +45,12 @@ export class Span {
     traceIdOverride?: string
   ) {
     this.tracer = tracer;
+    // Treat empty string as "no override" to prevent invalid trace graphs
+    const effectiveTraceId = traceIdOverride || undefined;
     this.data = {
       context: {
         // Prioritize explicit traceIdOverride to support concurrent scenarios
-        traceId: traceIdOverride ?? parentContext?.traceId ?? this.generateId(),
+        traceId: effectiveTraceId ?? parentContext?.traceId ?? this.generateId(),
         spanId: this.generateId(),
         parentSpanId: parentContext?.spanId,
       },
@@ -183,16 +185,19 @@ export class Tracer {
   /**
    * Start a new trace/span
    *
-   * Note: When traceId is explicitly provided, currentSpan is bypassed to prevent
-   * trace cross-linking in concurrent scenarios. Use parentContext explicitly if
-   * you need to link to an existing span while overriding the trace ID.
+   * Note: When traceId is explicitly provided (non-empty string), currentSpan is
+   * bypassed to prevent trace cross-linking in concurrent scenarios. Empty strings
+   * are treated as "no override" to handle cases like optional headers that parse
+   * to empty strings. Use parentContext explicitly if you need to link to an
+   * existing span while overriding the trace ID.
    */
   startSpan(
     name: string,
     attributes?: Record<string, unknown>,
     options?: { parentContext?: SpanContext; traceId?: string }
   ): Span {
-    // Bypass currentSpan when traceId is explicitly provided to prevent trace cross-linking
+    // Bypass currentSpan when traceId is explicitly provided (non-empty) to prevent trace cross-linking
+    // Empty strings are treated as "no override" for consistency with Span constructor
     const parentContext = options?.parentContext ??
       (options?.traceId ? undefined : this.currentSpan?.getContext());
     const span = new Span(this, name, parentContext, attributes, options?.traceId);
