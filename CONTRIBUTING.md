@@ -97,7 +97,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 - **Discord**: Join our community (coming soon)
 - **Issues**: Tag with `question` label
-- **Email**: dev@trozlan.com
+- **Email**: info@trozlan.io
 
 ## Recognition
 
