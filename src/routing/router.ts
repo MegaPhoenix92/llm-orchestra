@@ -10,10 +10,10 @@ import type {
   CompletionResponse,
   CompletionStream,
   RetryConfig,
-  AllProvidersFailedError,
   RateLimitError,
   TimeoutError,
 } from '../types/index.js';
+import { AllProvidersFailedError } from '../types/index.js';
 import { getProviderForModel } from '../providers/index.js';
 
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
@@ -122,13 +122,15 @@ export class Router {
       }
     }
 
-    // All providers failed
-    throw {
-      name: 'AllProvidersFailedError',
-      message: `All providers failed: ${attempts.map(a => `${a.provider}/${a.model}`).join(', ')}`,
-      code: 'ALL_PROVIDERS_FAILED',
-      attempts,
-    } as AllProvidersFailedError;
+    const failureAttempts = attempts.map((attempt) => ({
+      provider: attempt.provider,
+      model: attempt.model,
+      error: attempt.error ?? new Error('Unknown error'),
+      latencyMs: attempt.latencyMs,
+      success: attempt.success,
+    }));
+
+    throw new AllProvidersFailedError(failureAttempts);
   }
 
   /**
@@ -171,13 +173,15 @@ export class Router {
       }
     }
 
-    // All providers failed
-    throw {
-      name: 'AllProvidersFailedError',
-      message: `All streaming providers failed`,
-      code: 'ALL_PROVIDERS_FAILED',
-      attempts,
-    } as AllProvidersFailedError;
+    const failureAttempts = attempts.map((attempt) => ({
+      provider: attempt.provider,
+      model: attempt.model,
+      error: attempt.error ?? new Error('Unknown error'),
+      latencyMs: attempt.latencyMs,
+      success: attempt.success,
+    }));
+
+    throw new AllProvidersFailedError(failureAttempts);
   }
 
   /**
@@ -231,14 +235,17 @@ export class Router {
    * Check if an error is retryable
    */
   private isRetryable(error: Error): boolean {
-    const errorCode = (error as any).code ?? '';
-    const errorStatus = (error as any).status ?? (error as any).statusCode ?? '';
+    const rawCode = (error as any).code;
+    const rawStatus = (error as any).status ?? (error as any).statusCode;
+    const errorCode = typeof rawCode === 'string' ? rawCode : rawCode !== undefined ? String(rawCode) : '';
+    const errorStatus = rawStatus !== undefined ? String(rawStatus) : '';
+    const message = typeof (error as any).message === 'string' ? (error as any).message : '';
 
     return this.retryConfig.retryableErrors.some(
       (code) =>
         errorCode.includes(code) ||
-        errorStatus.toString().includes(code) ||
-        error.message.includes(code)
+        errorStatus.includes(code) ||
+        message.includes(code)
     );
   }
 

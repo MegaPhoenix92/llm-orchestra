@@ -169,24 +169,24 @@ export class GoogleProvider extends BaseProvider {
 
   private convertMessages(messages: Message[]): {
     systemInstruction: string | undefined;
-    contents: Array<{ role: 'user' | 'model'; parts: string }>;
+    contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>;
   } {
     let systemInstruction: string | undefined;
-    const contents: Array<{ role: 'user' | 'model'; parts: string }> = [];
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
     for (const msg of messages) {
       if (msg.role === 'system') {
         systemInstruction = (systemInstruction ?? '') + msg.content;
       } else if (msg.role === 'user') {
-        contents.push({ role: 'user', parts: msg.content });
+        contents.push({ role: 'user', parts: [{ text: msg.content }] });
       } else if (msg.role === 'assistant') {
-        contents.push({ role: 'model', parts: msg.content });
+        contents.push({ role: 'model', parts: [{ text: msg.content }] });
       }
     }
 
     // Ensure we have at least one message
     if (contents.length === 0) {
-      contents.push({ role: 'user', parts: '' });
+      contents.push({ role: 'user', parts: [{ text: '' }] });
     }
 
     return { systemInstruction, contents };

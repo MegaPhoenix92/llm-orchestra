@@ -109,6 +109,8 @@ export class OpenAIProvider extends BaseProvider {
       ...(request.temperature !== undefined && { temperature: request.temperature }),
       ...(request.topP !== undefined && { top_p: request.topP }),
       ...(request.stop && { stop: request.stop }),
+      ...(request.tools && { tools: this.convertTools(request.tools) }),
+      ...(request.toolChoice && { tool_choice: request.toolChoice }),
     };
 
     const stream = await this.client.chat.completions.create(openaiRequest);
@@ -120,6 +122,23 @@ export class OpenAIProvider extends BaseProvider {
 
       if (choice?.delta?.content) {
         yield { content: choice.delta.content };
+      }
+
+      if (choice?.delta?.tool_calls) {
+        const toolCalls: Partial<ToolCall>[] = choice.delta.tool_calls.map((toolCall) => ({
+          ...(toolCall.id && { id: toolCall.id }),
+          type: 'function',
+          ...(toolCall.function && {
+            function: {
+              name: toolCall.function.name ?? '',
+              arguments: toolCall.function.arguments ?? '',
+            },
+          }),
+        }));
+
+        if (toolCalls.length > 0) {
+          yield { toolCalls };
+        }
       }
 
       if (chunk.usage) {

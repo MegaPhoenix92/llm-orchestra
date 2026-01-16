@@ -41,12 +41,13 @@ export class Span {
     tracer: Tracer,
     name: string,
     parentContext?: SpanContext,
-    attributes?: Record<string, unknown>
+    attributes?: Record<string, unknown>,
+    traceIdOverride?: string
   ) {
     this.tracer = tracer;
     this.data = {
       context: {
-        traceId: parentContext?.traceId ?? this.generateId(),
+        traceId: parentContext?.traceId ?? traceIdOverride ?? this.generateId(),
         spanId: this.generateId(),
         parentSpanId: parentContext?.spanId,
       },
@@ -136,6 +137,7 @@ export class Span {
       this.data.status = 'ok';
     }
     this.tracer.recordSpan(this.data);
+    this.tracer.endSpan(this);
   }
 
   /**
@@ -164,7 +166,7 @@ export class Span {
 export class Tracer {
   private config: TracingConfig;
   private spans: SpanData[] = [];
-  private currentSpan: Span | undefined;
+  private spanStack: Span[] = [];
   private exportQueue: SpanData[] = [];
   private exportTimer?: ReturnType<typeof setInterval>;
 
@@ -180,10 +182,14 @@ export class Tracer {
   /**
    * Start a new trace/span
    */
-  startSpan(name: string, attributes?: Record<string, unknown>): Span {
-    const parentContext = this.currentSpan?.getContext();
-    const span = new Span(this, name, parentContext, attributes);
-    this.currentSpan = span;
+  startSpan(
+    name: string,
+    attributes?: Record<string, unknown>,
+    options?: { parentContext?: SpanContext; traceId?: string }
+  ): Span {
+    const parentContext = options?.parentContext ?? this.currentSpan?.getContext();
+    const span = new Span(this, name, parentContext, attributes, options?.traceId);
+    this.spanStack.push(span);
     return span;
   }
 
@@ -193,9 +199,10 @@ export class Tracer {
   async trace<T>(
     name: string,
     fn: (span: Span) => Promise<T>,
-    attributes?: Record<string, unknown>
+    attributes?: Record<string, unknown>,
+    options?: { parentContext?: SpanContext; traceId?: string }
   ): Promise<T> {
-    const span = this.startSpan(name, attributes);
+    const span = this.startSpan(name, attributes, options);
     try {
       const result = await fn(span);
       span.setStatus('ok');
@@ -252,6 +259,12 @@ export class Tracer {
     if (this.exportQueue.length >= 100) {
       this.flush();
     }
+  }
+
+  endSpan(span: Span): void {
+    const index = this.spanStack.lastIndexOf(span);
+    if (index === -1) return;
+    this.spanStack.splice(index, 1);
   }
 
   /**
@@ -311,6 +324,10 @@ export class Tracer {
     if (!this.config.enabled) return false;
     if (this.config.sampleRate === undefined) return true;
     return Math.random() < this.config.sampleRate;
+  }
+
+  private get currentSpan(): Span | undefined {
+    return this.spanStack[this.spanStack.length - 1];
   }
 }
 

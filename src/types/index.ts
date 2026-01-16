@@ -235,9 +235,17 @@ export class TimeoutError extends OrchestraError {
   }
 }
 
+export interface ProviderAttempt {
+  provider: ProviderName;
+  model: string;
+  error: Error;
+  latencyMs?: number;
+  success?: boolean;
+}
+
 export class AllProvidersFailedError extends OrchestraError {
   constructor(
-    public attempts: Array<{ provider: ProviderName; model: string; error: Error }>
+    public attempts: ProviderAttempt[]
   ) {
     super(
       `All providers failed: ${attempts.map(a => `${a.provider}/${a.model}`).join(', ')}`,
