@@ -45,6 +45,26 @@ describe('Span', () => {
       expect(childContext.spanId).not.toBe(parentContext.spanId);
     });
 
+    it('should_prioritizeTraceIdOverride_when_bothParentContextAndOverrideProvided', () => {
+      // This tests the Span constructor's traceId priority
+      // traceIdOverride should take precedence over parentContext.traceId
+      const customParentContext = {
+        traceId: 'trace_from_parent',
+        spanId: 'span_parent',
+      };
+
+      const span = tracer.startSpan('operation', undefined, {
+        parentContext: customParentContext,
+        traceId: 'trace_override_explicit',
+      });
+      const context = span.getContext();
+
+      // traceIdOverride should win
+      expect(context.traceId).toBe('trace_override_explicit');
+      // parentSpanId should still be linked
+      expect(context.parentSpanId).toBe('span_parent');
+    });
+
     it('should_setInitialStatusToUnset_when_created', () => {
       const data = span.getData();
       expect(data.status).toBe('unset');
@@ -382,6 +402,84 @@ describe('Tracer', () => {
       const context = span.getContext();
 
       expect(context.traceId).toBe('trace_custom');
+    });
+
+    it('should_honorTraceIdOverride_when_currentSpanExists', () => {
+      // Start a span to create a currentSpan context
+      const existingSpan = tracer.startSpan('existing-operation');
+      const existingTraceId = existingSpan.getContext().traceId;
+
+      // Start another span with explicit traceId while existing span is active
+      const newSpan = tracer.startSpan('new-operation', undefined, { traceId: 'trace_explicit' });
+      const newContext = newSpan.getContext();
+
+      // The explicit traceId should be used, NOT inherited from currentSpan
+      expect(newContext.traceId).toBe('trace_explicit');
+      expect(newContext.traceId).not.toBe(existingTraceId);
+
+      // Cleanup
+      newSpan.end();
+      existingSpan.end();
+    });
+
+    it('should_notInheritParentSpan_when_traceIdExplicitlyProvided', () => {
+      // Start a parent span
+      const parentSpan = tracer.startSpan('parent-operation');
+      const parentContext = parentSpan.getContext();
+
+      // Start a span with explicit traceId (simulating concurrent request)
+      const concurrentSpan = tracer.startSpan('concurrent-operation', undefined, {
+        traceId: 'trace_concurrent_request',
+      });
+      const concurrentContext = concurrentSpan.getContext();
+
+      // Should NOT have parent relationship (no cross-linking)
+      expect(concurrentContext.traceId).toBe('trace_concurrent_request');
+      expect(concurrentContext.parentSpanId).toBeUndefined();
+
+      // Cleanup
+      concurrentSpan.end();
+      parentSpan.end();
+    });
+
+    it('should_honorExplicitParentContext_when_providedWithTraceId', () => {
+      // Create a custom parent context
+      const customParentContext = {
+        traceId: 'trace_parent',
+        spanId: 'span_parent_123',
+      };
+
+      // Start span with both parentContext and traceId
+      const span = tracer.startSpan('operation', undefined, {
+        parentContext: customParentContext,
+        traceId: 'trace_override',
+      });
+      const context = span.getContext();
+
+      // traceId override should take precedence
+      expect(context.traceId).toBe('trace_override');
+      // But parentSpanId from explicit parentContext should still be set
+      expect(context.parentSpanId).toBe('span_parent_123');
+
+      span.end();
+    });
+
+    it('should_useCurrentSpan_when_noTraceIdProvided', () => {
+      // Start a parent span
+      const parentSpan = tracer.startSpan('parent-operation');
+      const parentContext = parentSpan.getContext();
+
+      // Start a child span without explicit traceId
+      const childSpan = tracer.startSpan('child-operation');
+      const childContext = childSpan.getContext();
+
+      // Should inherit from currentSpan
+      expect(childContext.traceId).toBe(parentContext.traceId);
+      expect(childContext.parentSpanId).toBe(parentContext.spanId);
+
+      // Cleanup
+      childSpan.end();
+      parentSpan.end();
     });
   });
 
