@@ -16,7 +16,7 @@ import type {
   ToolDefinition,
 } from '../types/index.js';
 
-// Pricing as of Jan 2024 (per 1K tokens)
+// Pricing as of Jan 2026 (per 1K tokens)
 const MODEL_PRICING: Record<string, { inputPer1k: number; outputPer1k: number }> = {
   'claude-3-opus-20240229': { inputPer1k: 0.015, outputPer1k: 0.075 },
   'claude-3-sonnet-20240229': { inputPer1k: 0.003, outputPer1k: 0.015 },

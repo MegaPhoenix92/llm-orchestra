@@ -15,7 +15,7 @@ import type {
   ToolDefinition,
 } from '../types/index.js';
 
-// Pricing as of Jan 2024 (per 1K tokens)
+// Pricing as of Jan 2026 (per 1K tokens)
 const MODEL_PRICING: Record<string, { inputPer1k: number; outputPer1k: number }> = {
   'gemini-pro': { inputPer1k: 0.00025, outputPer1k: 0.0005 },
   'gemini-pro-vision': { inputPer1k: 0.00025, outputPer1k: 0.0005 },

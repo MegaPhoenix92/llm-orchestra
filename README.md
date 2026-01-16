@@ -174,25 +174,25 @@ const result = await trace('user-question-flow', async (span) => {
 
 ## Roadmap
 
-### Phase 1: Core SDK (Q1 2024)
-- [ ] Unified provider interface (Claude, GPT-4, Gemini)
-- [ ] Basic tracing and cost tracking
-- [ ] TypeScript SDK
+### Phase 1: Core SDK (Q1 2026)
+- [x] Unified provider interface (Claude, GPT-4, Gemini)
+- [x] Basic tracing and cost tracking
+- [x] TypeScript SDK
 - [ ] Local dashboard
 
-### Phase 2: Production Features (Q2 2024)
+### Phase 2: Production Features (Q2 2026)
 - [ ] Python SDK
 - [ ] Semantic caching
-- [ ] Automatic failover and retries
+- [x] Automatic failover and retries
 - [ ] OpenTelemetry export
 
-### Phase 3: Agent Orchestration (Q3 2024)
-- [ ] Multi-agent coordination primitives
+### Phase 3: Agent Orchestration (Q3 2026)
+- [x] Multi-agent coordination primitives
 - [ ] Tool call tracing
 - [ ] Workflow engine
 - [ ] Memory backends
 
-### Phase 4: Enterprise (Q4 2024)
+### Phase 4: Enterprise (Q4 2026)
 - [ ] Cloud dashboard
 - [ ] Team management
 - [ ] RBAC and audit logs
