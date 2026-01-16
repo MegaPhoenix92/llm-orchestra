@@ -47,7 +47,8 @@ export class Span {
     this.tracer = tracer;
     this.data = {
       context: {
-        traceId: parentContext?.traceId ?? traceIdOverride ?? this.generateId(),
+        // Prioritize explicit traceIdOverride to support concurrent scenarios
+        traceId: traceIdOverride ?? parentContext?.traceId ?? this.generateId(),
         spanId: this.generateId(),
         parentSpanId: parentContext?.spanId,
       },
@@ -181,13 +182,19 @@ export class Tracer {
 
   /**
    * Start a new trace/span
+   *
+   * Note: When traceId is explicitly provided, currentSpan is bypassed to prevent
+   * trace cross-linking in concurrent scenarios. Use parentContext explicitly if
+   * you need to link to an existing span while overriding the trace ID.
    */
   startSpan(
     name: string,
     attributes?: Record<string, unknown>,
     options?: { parentContext?: SpanContext; traceId?: string }
   ): Span {
-    const parentContext = options?.parentContext ?? this.currentSpan?.getContext();
+    // Bypass currentSpan when traceId is explicitly provided to prevent trace cross-linking
+    const parentContext = options?.parentContext ??
+      (options?.traceId ? undefined : this.currentSpan?.getContext());
     const span = new Span(this, name, parentContext, attributes, options?.traceId);
     this.spanStack.push(span);
     return span;
