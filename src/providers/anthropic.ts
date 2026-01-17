@@ -10,7 +10,6 @@ import type {
   CompletionRequest,
   CompletionResponse,
   CompletionStream,
-  StreamChunk,
   Message,
   TokenUsage,
   ToolDefinition,

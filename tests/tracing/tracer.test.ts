@@ -310,7 +310,8 @@ describe('Span', () => {
 
   describe('getDuration', () => {
     it('should_returnDuration_when_spanEnded', async () => {
-      await new Promise(r => setTimeout(r, 10));
+      // Use 15ms sleep with 10ms threshold to account for timer variance
+      await new Promise(r => setTimeout(r, 15));
       span.end();
 
       const duration = span.getDuration();
@@ -318,7 +319,8 @@ describe('Span', () => {
     });
 
     it('should_returnCurrentDuration_when_spanNotEnded', async () => {
-      await new Promise(r => setTimeout(r, 10));
+      // Use 15ms sleep with 10ms threshold to account for timer variance
+      await new Promise(r => setTimeout(r, 15));
 
       const duration = span.getDuration();
       expect(duration).toBeGreaterThanOrEqual(10);

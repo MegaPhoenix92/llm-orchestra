@@ -3,7 +3,7 @@
  * Handles Gemini models via the Google Generative AI API
  */
 
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { BaseProvider } from './base.js';
 import type {
   ProviderCredentials,
@@ -12,7 +12,6 @@ import type {
   CompletionStream,
   Message,
   TokenUsage,
-  ToolDefinition,
 } from '../types/index.js';
 
 // Pricing as of Jan 2026 (per 1K tokens)
@@ -117,12 +116,9 @@ export class GoogleProvider extends BaseProvider {
     const lastMessage = contents[contents.length - 1];
     const result = await chat.sendMessageStream(lastMessage.parts);
 
-    let totalContent = '';
-
     for await (const chunk of result.stream) {
       const text = chunk.text();
       if (text) {
-        totalContent += text;
         yield { content: text };
       }
     }
