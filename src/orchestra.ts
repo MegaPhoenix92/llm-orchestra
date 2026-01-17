@@ -309,7 +309,7 @@ export class Orchestra {
     modelStats.cost += cost;
   }
 
-  private checkCostAlerts(cost: number): void {
+  private checkCostAlerts(_cost: number): void {
     const config = this.config.observability?.costTracking;
     if (!config) return;
 

@@ -10,7 +10,6 @@ import type {
   CompletionResponse,
   CompletionStream,
   RetryConfig,
-  RateLimitError,
   TimeoutError,
 } from '../types/index.js';
 import { AllProvidersFailedError } from '../types/index.js';
