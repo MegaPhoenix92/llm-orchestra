@@ -184,7 +184,7 @@ const result = await trace('user-question-flow', async (span) => {
 - [ ] Python SDK
 - [ ] Semantic caching
 - [x] Automatic failover and retries
-- [ ] OpenTelemetry export
+- [x] OpenTelemetry export
 
 ### Phase 3: Agent Orchestration (Q3 2026)
 - [x] Multi-agent coordination primitives
