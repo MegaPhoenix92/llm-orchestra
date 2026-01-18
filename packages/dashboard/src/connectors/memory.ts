@@ -22,6 +22,9 @@ export class RingBuffer<T> {
   private capacity: number;
 
   constructor(capacity: number) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error('RingBuffer capacity must be a positive integer');
+    }
     this.capacity = capacity;
     this.buffer = new Array(capacity);
   }
@@ -50,7 +53,10 @@ export class RingBuffer<T> {
   }
 
   clear(): void {
-    this.buffer = new Array(this.capacity);
+    // Explicitly clear references to help GC
+    for (let i = 0; i < this.capacity; i++) {
+      this.buffer[i] = undefined;
+    }
     this.head = 0;
     this.size = 0;
   }
@@ -74,12 +80,15 @@ export class MemoryConnector implements DashboardConnector {
   private subscribers: Set<(event: DashboardEvent) => void> = new Set();
   private pollInterval?: ReturnType<typeof setInterval>;
   private retentionMs: number;
+  private readonly maxSeenIds: number;
 
   constructor(orchestra: Orchestra, options: MemoryConnectorOptions = {}) {
     this.orchestra = orchestra;
     const bufferSize = options.traceBufferSize ?? 100;
     this.traceBuffer = new RingBuffer(bufferSize);
     this.retentionMs = options.retentionMs ?? 3600000; // 1 hour default
+    // Limit seen IDs to 2x buffer size to prevent unbounded growth
+    this.maxSeenIds = bufferSize * 2;
 
     // Start polling for new traces
     this.startPolling();
@@ -165,6 +174,7 @@ export class MemoryConnector implements DashboardConnector {
   }
 
   private pruneSeenIds(now: number): void {
+    // Prune by age
     for (const [spanId, timestamp] of this.seenSpanIds) {
       if (now - timestamp > this.retentionMs) {
         this.seenSpanIds.delete(spanId);
@@ -174,6 +184,27 @@ export class MemoryConnector implements DashboardConnector {
     for (const [traceId, timestamp] of this.seenTraceIds) {
       if (now - timestamp > this.retentionMs) {
         this.seenTraceIds.delete(traceId);
+      }
+    }
+
+    // Also enforce max size to prevent unbounded growth
+    if (this.seenSpanIds.size > this.maxSeenIds) {
+      const entriesToRemove = this.seenSpanIds.size - this.maxSeenIds;
+      let removed = 0;
+      for (const [spanId] of this.seenSpanIds) {
+        if (removed >= entriesToRemove) break;
+        this.seenSpanIds.delete(spanId);
+        removed++;
+      }
+    }
+
+    if (this.seenTraceIds.size > this.maxSeenIds) {
+      const entriesToRemove = this.seenTraceIds.size - this.maxSeenIds;
+      let removed = 0;
+      for (const [traceId] of this.seenTraceIds) {
+        if (removed >= entriesToRemove) break;
+        this.seenTraceIds.delete(traceId);
+        removed++;
       }
     }
   }

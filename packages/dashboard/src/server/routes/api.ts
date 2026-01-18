@@ -35,12 +35,25 @@ export function createApiRoutes(connector: DashboardConnector): Hono {
       const rawStatus = c.req.query('status');
       const status = rawStatus === 'ok' || rawStatus === 'error' ? rawStatus : undefined;
 
+      // Validate and sanitize string parameters
+      const provider = c.req.query('provider');
+      const model = c.req.query('model');
+      
+      // Limit string length to prevent DoS
+      const MAX_STRING_LENGTH = 100;
+      const safeProvider = provider && provider.length <= MAX_STRING_LENGTH 
+        ? provider 
+        : undefined;
+      const safeModel = model && model.length <= MAX_STRING_LENGTH 
+        ? model 
+        : undefined;
+
       const options: TraceQueryOptions = {
         limit: Number.isNaN(limitRaw) ? 50 : Math.min(Math.max(limitRaw, 1), 100),
         offset: Number.isNaN(offsetRaw) ? 0 : Math.max(offsetRaw, 0),
         status,
-        provider: c.req.query('provider'),
-        model: c.req.query('model'),
+        provider: safeProvider,
+        model: safeModel,
         startTime: startTimeRaw !== undefined && !Number.isNaN(startTimeRaw)
           ? startTimeRaw
           : undefined,

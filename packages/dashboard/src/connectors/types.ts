@@ -59,6 +59,11 @@ export interface DashboardConnector {
   getTraceDetail(traceId: string): Promise<TraceDetail | null>;
   getProviderHealth(): Promise<ProviderHealth[]>;
   subscribe(callback: (event: DashboardEvent) => void): () => void;
+  /**
+   * Optional cleanup method called when the dashboard is stopped.
+   * Implement this if your connector has resources that need cleanup
+   * (e.g., polling intervals, open connections, file handles).
+   */
   shutdown?: () => void;
 }
 

@@ -97,16 +97,29 @@ program
       open: options.open ?? false,
     });
 
-    await server.start();
-    console.log(chalk.gray('Press Ctrl+C to stop the server.'));
-
     const shutdown = () => {
       server.stop();
       process.exit(0);
     };
 
+    // Register signal handlers first
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+
+    try {
+      await server.start();
+      console.log(chalk.gray('Press Ctrl+C to stop the server.'));
+    } catch (error) {
+      // Remove signal handlers before exiting
+      process.off('SIGINT', shutdown);
+      process.off('SIGTERM', shutdown);
+      
+      console.error(
+        chalk.red('Failed to start server:'),
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      process.exit(1);
+    }
   });
 
 // Default action: show help

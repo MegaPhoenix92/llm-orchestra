@@ -21,6 +21,10 @@ export function createSSERoutes(connector: DashboardConnector): Hono {
           if (event.type === 'new_trace') {
             // Send HTML fragment for HTMX sse-swap
             const trace = event.data as TraceListItem;
+            // Validate trace has required fields
+            if (!trace || typeof trace.traceId !== 'string' || typeof trace.name !== 'string') {
+              return; // Skip invalid trace data
+            }
             await stream.writeSSE({
               event: event.type,
               data: renderTraceFeedItem(trace),
