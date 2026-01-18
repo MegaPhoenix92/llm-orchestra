@@ -95,12 +95,13 @@ export function displayCosts(stats: DashboardStats): void {
     console.log(modelTable.toString());
 
     // Top spending insight
-    if (models.length > 0) {
+    if (models.length > 0 && stats.totalCost > 0) {
       const topModel = models[0];
+      const pctOfTotal = ((topModel.cost / stats.totalCost) * 100).toFixed(0);
       console.log(
         chalk.gray(
           `\n💡 Highest cost: ${topModel.name} at $${topModel.cost.toFixed(4)} ` +
-            `(${((topModel.cost / Math.max(stats.totalCost, 0.0001)) * 100).toFixed(0)}% of total)`
+            `(${pctOfTotal}% of total)`
         )
       );
     }

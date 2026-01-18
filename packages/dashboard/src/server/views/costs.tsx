@@ -4,6 +4,7 @@
 
 import type { FC } from 'hono/jsx';
 import type { DashboardStats } from '../../connectors/types.js';
+import { escapeJsonForScript, sanitizeClass } from '../utils.js';
 
 interface CostsProps {
   stats: DashboardStats;
@@ -95,7 +96,7 @@ export const CostsPage: FC<CostsProps> = ({ stats }) => {
           {providerCosts.map(({ name, cost, requests }) => (
             <tr>
               <td>
-                <span class={`provider-badge provider-${name}`}>{name}</span>
+                <span class={`provider-badge provider-${sanitizeClass(name)}`}>{name}</span>
               </td>
               <td>{requests}</td>
               <td>{formatCost(cost)}</td>
@@ -163,8 +164,8 @@ export const CostsPage: FC<CostsProps> = ({ stats }) => {
 
       <script>{`
         (function() {
-          const providerData = ${JSON.stringify(providerCosts)};
-          const modelData = ${JSON.stringify(modelCosts.slice(0, 10))};
+          const providerData = ${escapeJsonForScript(providerCosts)};
+          const modelData = ${escapeJsonForScript(modelCosts.slice(0, 10))};
           const colors = {
             anthropic: '#d97706',
             openai: '#10a37f',

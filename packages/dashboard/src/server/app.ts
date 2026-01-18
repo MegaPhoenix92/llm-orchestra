@@ -112,6 +112,8 @@ export function attachDashboard(
   config: Partial<DashboardConfig> = {}
 ): DashboardServer {
   const server = createDashboardServer(orchestra, config);
-  server.start();
+  server.start().catch((error) => {
+    console.error('[Dashboard] Failed to start server:', error);
+  });
   return server;
 }

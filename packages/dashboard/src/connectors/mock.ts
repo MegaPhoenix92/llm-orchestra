@@ -286,8 +286,8 @@ export class MockConnector implements DashboardConnector {
     for (const callback of this.subscribers) {
       try {
         callback(event);
-      } catch {
-        // Ignore subscriber errors
+      } catch (error) {
+        console.error('[MockConnector] Subscriber error:', error);
       }
     }
   }

@@ -90,8 +90,8 @@ export class MemoryConnector implements DashboardConnector {
       try {
         this.syncTraces();
         this.checkStatsUpdate();
-      } catch {
-        // Log error but continue polling
+      } catch (error) {
+        console.error('[MemoryConnector] Polling error:', error);
       }
     }, 1000);
   }
@@ -111,8 +111,9 @@ export class MemoryConnector implements DashboardConnector {
         continue;
       }
 
-      // Skip spans older than retention period
-      if (now - span.startTime > this.retentionMs) {
+      // Skip spans older than retention period (use endTime for long-running spans)
+      const spanEndTime = span.endTime ?? now;
+      if (now - spanEndTime > this.retentionMs) {
         continue;
       }
 
@@ -158,8 +159,8 @@ export class MemoryConnector implements DashboardConnector {
     for (const callback of this.subscribers) {
       try {
         callback(event);
-      } catch {
-        // Ignore subscriber errors
+      } catch (error) {
+        console.error('[MemoryConnector] Subscriber error:', error);
       }
     }
   }

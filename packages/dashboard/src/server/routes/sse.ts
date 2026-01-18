@@ -62,15 +62,15 @@ export function createSSERoutes(connector: DashboardConnector): Hono {
         }
       }, 30000);
 
-      // Cleanup on disconnect
-      stream.onAbort(() => {
-        isStreamOpen = false;
-        clearInterval(heartbeat);
-        unsubscribe();
+      // Create a promise that resolves when the stream is aborted
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          isStreamOpen = false;
+          clearInterval(heartbeat);
+          unsubscribe();
+          resolve();
+        });
       });
-
-      // Wait indefinitely (stream stays open)
-      await new Promise(() => {});
     });
   });
 

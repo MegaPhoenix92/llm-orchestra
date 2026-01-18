@@ -5,6 +5,7 @@
 import type { FC } from 'hono/jsx';
 import type { TraceListItem, TraceDetail } from '../../connectors/types.js';
 import type { SpanData } from 'llm-orchestra';
+import { sanitizeClass } from '../utils.js';
 
 interface TracesProps {
   traces: TraceListItem[];
@@ -205,7 +206,7 @@ export const TracesPage: FC<TracesProps> = ({ traces, traceDetail, filters }) =>
               </td>
               <td>
                 {trace.provider && (
-                  <span class={`provider-badge provider-${trace.provider}`}>
+                  <span class={`provider-badge provider-${sanitizeClass(trace.provider)}`}>
                     {trace.provider}
                   </span>
                 )}

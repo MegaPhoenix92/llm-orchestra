@@ -8,6 +8,7 @@ import type {
   TraceListItem,
   ProviderHealth,
 } from '../../connectors/types.js';
+import { escapeJsonForScript, sanitizeClass } from '../utils.js';
 
 interface OverviewProps {
   stats: DashboardStats;
@@ -68,7 +69,7 @@ export const OverviewPage: FC<OverviewProps> = ({
                   <div
                     class={`health-indicator ${p.available ? 'available' : 'unavailable'}`}
                   />
-                  <span class={`provider-badge provider-${p.name}`}>{p.name}</span>
+                  <span class={`provider-badge provider-${sanitizeClass(p.name)}`}>{p.name}</span>
                 </div>
                 <p>
                   <small>
@@ -102,7 +103,7 @@ export const OverviewPage: FC<OverviewProps> = ({
                     <span class={`status-${trace.status}`}>●</span>{' '}
                     <strong>{trace.name}</strong>
                     {trace.provider && (
-                      <span class={`provider-badge provider-${trace.provider}`}>
+                      <span class={`provider-badge provider-${sanitizeClass(trace.provider)}`}>
                         {trace.provider}
                       </span>
                     )}{' '}
@@ -130,7 +131,7 @@ export const OverviewPage: FC<OverviewProps> = ({
       <script>{`
         (function() {
           const ctx = document.getElementById('providerChart');
-          const stats = ${JSON.stringify(stats.byProvider)};
+          const stats = ${escapeJsonForScript(stats.byProvider)};
           const labels = Object.keys(stats);
           const data = labels.map(k => stats[k].requests);
           const colors = {
