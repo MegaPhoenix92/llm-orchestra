@@ -4,8 +4,12 @@
   "description": "Unified Observability & Orchestration SDK for Multi-Model AI Applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "tsc",
+    "build:all": "npm run build && npm run build -w @llm-orchestra/dashboard",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -15,7 +19,8 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
-    "dashboard": "cd packages/dashboard && npm run dev"
+    "dashboard": "npm run dev -w @llm-orchestra/dashboard",
+    "dashboard:cli": "npm run cli -w @llm-orchestra/dashboard"
   },
   "keywords": [
     "llm",
