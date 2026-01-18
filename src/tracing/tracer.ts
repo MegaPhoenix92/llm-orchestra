@@ -3,7 +3,13 @@
  * Provides OpenTelemetry-compatible tracing for LLM operations
  */
 
-import type { TracingConfig, ProviderName, TokenUsage } from '../types/index.js';
+import type {
+  TracingConfig,
+  ProviderName,
+  TokenUsage,
+  TracingExportMode,
+} from '../types/index.js';
+import { OtlpHttpExporter } from './otel/exporter.js';
 
 export interface SpanContext {
   traceId: string;
@@ -172,13 +178,39 @@ export class Tracer {
   private spanStack: Span[] = [];
   private exportQueue: SpanData[] = [];
   private exportTimer?: ReturnType<typeof setInterval>;
+  private otelExporter?: OtlpHttpExporter;
+  private maxExportBatchSize: number;
 
   constructor(config: TracingConfig) {
     this.config = config;
 
-    if (config.enabled && config.exportEndpoint) {
-      // Start periodic export
-      this.exportTimer = setInterval(() => this.flush(), 5000);
+    const otelConfig = config.otel?.enabled ? config.otel : undefined;
+    this.maxExportBatchSize = otelConfig?.batchSize ?? 100;
+
+    if (otelConfig?.enabled) {
+      if (!otelConfig.endpoint) {
+        console.warn('[Orchestra] OTEL export enabled without endpoint.');
+      } else {
+        this.otelExporter = new OtlpHttpExporter({
+          endpoint: otelConfig.endpoint,
+          headers: otelConfig.headers,
+          timeout: otelConfig.timeout,
+          batchSize: otelConfig.batchSize,
+          flushInterval: otelConfig.flushInterval,
+          serviceName: otelConfig.serviceName,
+          serviceVersion: otelConfig.serviceVersion,
+        });
+      }
+    }
+
+    const shouldStartExportTimer = config.enabled && (
+      config.exportEndpoint ||
+      (otelConfig?.enabled && otelConfig.endpoint)
+    );
+
+    if (shouldStartExportTimer) {
+      const flushInterval = otelConfig?.flushInterval ?? 5000;
+      this.exportTimer = setInterval(() => this.flush(), flushInterval);
     }
   }
 
@@ -268,7 +300,7 @@ export class Tracer {
     this.exportQueue.push(data);
 
     // Auto-flush if queue is large
-    if (this.exportQueue.length >= 100) {
+    if (this.exportQueue.length >= this.maxExportBatchSize) {
       this.flush();
     }
   }
@@ -283,21 +315,43 @@ export class Tracer {
    * Flush pending spans to export endpoint
    */
   async flush(): Promise<void> {
-    if (!this.config.exportEndpoint || this.exportQueue.length === 0) return;
+    if (this.exportQueue.length === 0) return;
+
+    const mode = this.resolveExportMode();
+    const hasLegacy = (mode === 'legacy-only' || mode === 'both') &&
+      Boolean(this.config.exportEndpoint);
+    const hasOtel = (mode === 'otel-only' || mode === 'both') &&
+      Boolean(this.otelExporter);
+
+    if (!hasLegacy && !hasOtel) return;
 
     const toExport = [...this.exportQueue];
     this.exportQueue = [];
 
-    try {
-      await fetch(this.config.exportEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spans: toExport }),
-      });
-    } catch (error) {
-      // Re-queue on failure
+    const exporters: Promise<void>[] = [];
+
+    if (hasLegacy && this.config.exportEndpoint) {
+      exporters.push(this.exportLegacyJson(toExport));
+    }
+
+    if (hasOtel && this.otelExporter) {
+      exporters.push(this.otelExporter.export(toExport));
+    }
+
+    const results = await Promise.allSettled(exporters);
+    const anyRejected = results.some((result) => result.status === 'rejected');
+
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('Failed to export spans:', result.reason);
+      }
+    });
+
+    // Requeue spans if any exporter failed to ensure eventual delivery to all backends.
+    // This may cause duplicates for successful exporters, but observability backends
+    // typically deduplicate by trace_id + span_id, making this safe.
+    if (anyRejected) {
       this.exportQueue.unshift(...toExport);
-      console.error('Failed to export spans:', error);
     }
   }
 
@@ -330,6 +384,25 @@ export class Tracer {
       clearInterval(this.exportTimer);
     }
     await this.flush();
+  }
+
+  private async exportLegacyJson(spans: SpanData[]): Promise<void> {
+    if (!this.config.exportEndpoint) return;
+    const response = await fetch(this.config.exportEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spans }),
+    });
+    if (!response.ok) {
+      throw new Error(`Legacy export failed: ${response.status} ${response.statusText}`);
+    }
+  }
+
+  private resolveExportMode(): TracingExportMode {
+    if (this.config.exportMode) {
+      return this.config.exportMode;
+    }
+    return this.config.otel?.enabled ? 'otel-only' : 'legacy-only';
   }
 
   private shouldSample(): boolean {

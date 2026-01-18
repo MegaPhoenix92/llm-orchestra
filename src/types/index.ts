@@ -122,12 +122,27 @@ export type CompletionStream = AsyncIterable<StreamChunk>;
 // Configuration Types
 // ============================================================================
 
+export interface OtelTracingConfig {
+  enabled: boolean;
+  endpoint: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+  batchSize?: number;
+  flushInterval?: number;
+  serviceName?: string;
+  serviceVersion?: string;
+}
+
+export type TracingExportMode = 'legacy-only' | 'otel-only' | 'both';
+
 export interface TracingConfig {
   enabled: boolean;
   exportEndpoint?: string;
   sampleRate?: number;
   includePrompts?: boolean;
   includeResponses?: boolean;
+  otel?: OtelTracingConfig;
+  exportMode?: TracingExportMode;
 }
 
 export interface MetricsConfig {

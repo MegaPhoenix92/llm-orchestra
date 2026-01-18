@@ -3,6 +3,10 @@ node_modules/
 
 # Build output
 dist/
+*.tsbuildinfo
+
+# Planning docs (internal)
+CODEX_PLAN.md
 
 # IDE
 .idea/
