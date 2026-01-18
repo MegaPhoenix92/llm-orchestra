@@ -339,7 +339,6 @@ export class Tracer {
     }
 
     const results = await Promise.allSettled(exporters);
-    const anyFulfilled = results.some((result) => result.status === 'fulfilled');
     const anyRejected = results.some((result) => result.status === 'rejected');
 
     results.forEach((result) => {
@@ -348,7 +347,10 @@ export class Tracer {
       }
     });
 
-    if (anyRejected && !anyFulfilled) {
+    // Requeue spans if any exporter failed to ensure eventual delivery to all backends.
+    // This may cause duplicates for successful exporters, but observability backends
+    // typically deduplicate by trace_id + span_id, making this safe.
+    if (anyRejected) {
       this.exportQueue.unshift(...toExport);
     }
   }
