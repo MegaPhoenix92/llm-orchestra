@@ -37,6 +37,8 @@ export type {
   // Configuration types
   OrchestraConfig,
   TracingConfig,
+  OtelTracingConfig,
+  TracingExportMode,
   MetricsConfig,
   CostTrackingConfig,
   CacheConfig,
@@ -68,8 +70,18 @@ export { Router } from './routing/index.js';
 export type { RouterConfig, RouteResult } from './routing/index.js';
 
 // Tracing exports
-export { Tracer, Span, createNoopTracer } from './tracing/index.js';
-export type { SpanContext, SpanEvent, SpanData } from './tracing/index.js';
+export {
+  Tracer,
+  Span,
+  createNoopTracer,
+  OtlpHttpExporter,
+  toOtelTraceId,
+  toOtelSpanId,
+  msToNanos,
+  ATTRIBUTE_MAPPING,
+  mapAttributesToOtel,
+} from './tracing/index.js';
+export type { SpanContext, SpanEvent, SpanData, OtelExporterConfig } from './tracing/index.js';
 
 /**
  * Create an Orchestra instance with minimal configuration
