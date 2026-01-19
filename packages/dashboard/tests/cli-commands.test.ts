@@ -8,9 +8,8 @@ import { healthCommand } from '../src/cli/commands/health.js';
 import { costsCommand } from '../src/cli/commands/costs.js';
 import { tracesCommand } from '../src/cli/commands/traces.js';
 
-// Mock fetch globally
+// Mock fetch globally using vi.stubGlobal for proper cleanup
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 // Capture console output
 const consoleLogs: string[] = [];
@@ -22,6 +21,8 @@ const originalProcessExit = process.exit;
 beforeEach(() => {
   consoleLogs.length = 0;
   consoleErrors.length = 0;
+  // Use vi.stubGlobal for fetch to ensure proper restoration
+  vi.stubGlobal('fetch', mockFetch);
   console.log = (...args: unknown[]) => {
     consoleLogs.push(args.map(String).join(' '));
   };
@@ -33,6 +34,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Restore all stubbed globals including fetch
+  vi.unstubAllGlobals();
   console.log = originalConsoleLog;
   console.error = originalConsoleError;
   process.exit = originalProcessExit;
