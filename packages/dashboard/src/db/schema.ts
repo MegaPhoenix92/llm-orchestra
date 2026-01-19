@@ -98,6 +98,14 @@ export type NewOrgMember = InferInsertModel<typeof orgMembers>;
 
 /**
  * API Keys - SDK authentication
+ *
+ * Note on prefix uniqueness: The prefix column uses a unique constraint
+ * to prevent collisions at the database level. While the 16-character prefix
+ * (orch_ + 11 random chars from 64-char alphabet = 64^11 combinations)
+ * makes collisions virtually impossible, the constraint provides:
+ * 1. Database-level guarantee of uniqueness
+ * 2. Efficient index for prefix lookups
+ * 3. Clear error on the extremely rare collision attempt
  */
 export const apiKeys = pgTable('api_keys', {
   id: text('id').primaryKey(), // prefix 'key_'
@@ -106,7 +114,7 @@ export const apiKeys = pgTable('api_keys', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   hashedKey: text('hashed_key').notNull(),
-  prefix: text('prefix').notNull(), // for lookup (e.g., 'orch_abc')
+  prefix: text('prefix').notNull().unique(), // for lookup (e.g., 'orch_xxxxxxxxxxx')
   scopes: text('scopes').array().default(['ingest']),
   lastUsedAt: timestamp('last_used_at'),
   expiresAt: timestamp('expires_at'),
@@ -156,13 +164,15 @@ export type NewInvitation = InferInsertModel<typeof invitations>;
 
 /**
  * Traces - Root spans with aggregated metrics
- * Note: traceId is NOT globally unique - it's only unique within a project.
+ * Note: traceId (OTLP trace ID) is NOT globally unique - it's only unique within a project.
  * The composite (projectId, traceId) forms the true unique identity.
+ * We use a surrogate primary key (id) to avoid PK violations when two projects have the same traceId.
  */
 export const traces = pgTable(
   'traces',
   {
-    traceId: text('trace_id').primaryKey(),
+    id: text('id').primaryKey(), // Surrogate PK with prefix 'trc_'
+    traceId: text('trace_id').notNull(), // OTLP trace ID - unique per project only
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
@@ -193,16 +203,16 @@ export type NewTrace = InferInsertModel<typeof traces>;
 
 /**
  * Spans - Individual operations
- * Note: spanId is NOT globally unique - it's only unique within a trace.
+ * Note: spanId (OTLP span ID) is NOT globally unique - it's only unique within a trace.
  * The composite (traceId, spanId) forms the true unique identity.
+ * We use a surrogate primary key (id) to avoid PK violations when two traces have the same spanId.
  */
 export const spans = pgTable(
   'spans',
   {
-    spanId: text('span_id').primaryKey(),
-    traceId: text('trace_id')
-      .notNull()
-      .references(() => traces.traceId, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(), // Surrogate PK with prefix 'spn_'
+    spanId: text('span_id').notNull(), // OTLP span ID - unique per trace only
+    traceId: text('trace_id').notNull(), // OTLP trace ID - links to traces via composite unique
     parentId: text('parent_id'),
     name: text('name').notNull(),
     startTime: timestamp('start_time').notNull(),
@@ -227,12 +237,12 @@ export type NewSpan = InferInsertModel<typeof spans>;
 
 /**
  * Span Events - Events within spans
+ * Note: spanId here references the OTLP span ID, not the surrogate id.
+ * Cascading deletes are handled at the application level since we removed the FK constraint.
  */
 export const spanEvents = pgTable('span_events', {
   id: text('id').primaryKey(),
-  spanId: text('span_id')
-    .notNull()
-    .references(() => spans.spanId, { onDelete: 'cascade' }),
+  spanId: text('span_id').notNull(), // OTLP span ID - links to spans via traceSpanUnique
   name: text('name').notNull(),
   timestamp: timestamp('timestamp').notNull(),
   attributes: jsonb('attributes'),

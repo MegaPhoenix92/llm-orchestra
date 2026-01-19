@@ -16,6 +16,7 @@ export {
   hashApiKey,
   verifyApiKey,
   getApiKeyPrefix,
+  getLookupPrefixLength,
   type GeneratedApiKey,
 } from './api-key.js';
 

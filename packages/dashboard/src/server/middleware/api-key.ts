@@ -102,14 +102,15 @@ export function createApiKeyMiddleware(options: ApiKeyMiddlewareOptions): Middle
     // Extract prefix for database lookup
     const prefix = getApiKeyPrefix(key);
 
-    // Look up API key by prefix
-    const [apiKeyRecord] = await db
+    // Look up API keys by prefix
+    // Note: While collisions are extremely unlikely with 16-char prefixes,
+    // we handle them by verifying against all matching records
+    const apiKeyRecords = await db
       .select()
       .from(apiKeys)
-      .where(eq(apiKeys.prefix, prefix))
-      .limit(1);
+      .where(eq(apiKeys.prefix, prefix));
 
-    if (!apiKeyRecord) {
+    if (apiKeyRecords.length === 0) {
       return c.json(
         {
           error: 'Unauthorized',
@@ -119,10 +120,17 @@ export function createApiKeyMiddleware(options: ApiKeyMiddlewareOptions): Middle
       );
     }
 
-    // Verify the full key against the stored hash
-    const isValid = verifyApiKey(key, apiKeyRecord.hashedKey);
+    // Find the record that matches the full key hash
+    // This handles the unlikely case of prefix collisions
+    let apiKeyRecord = null;
+    for (const record of apiKeyRecords) {
+      if (verifyApiKey(key, record.hashedKey)) {
+        apiKeyRecord = record;
+        break;
+      }
+    }
 
-    if (!isValid) {
+    if (!apiKeyRecord) {
       return c.json(
         {
           error: 'Unauthorized',

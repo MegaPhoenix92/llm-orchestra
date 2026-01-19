@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // Disable CSS processing to avoid picking up parent monorepo's postcss.config.js
+  css: {
+    postcss: {},
+  },
   test: {
     // Test environment
     environment: 'node',

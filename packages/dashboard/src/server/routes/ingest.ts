@@ -533,8 +533,9 @@ async function storeSpans(
         rootSpans[0] ||
         traceSpans[0];
 
-      // Create trace record
+      // Create trace record with surrogate ID
       const traceRecord: NewTrace = {
+        id: `trc_${nanoid(16)}`, // Surrogate primary key
         traceId,
         projectId,
         name: primarySpan?.name || 'unnamed',
@@ -581,6 +582,7 @@ async function storeSpans(
       // Insert spans
       for (const span of traceSpans) {
         const spanRecord: NewSpan = {
+          id: `spn_${nanoid(16)}`, // Surrogate primary key
           spanId: span.spanId,
           traceId: span.traceId,
           parentId: span.parentId,

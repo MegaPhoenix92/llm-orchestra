@@ -126,8 +126,9 @@ describe('API Key Utilities', () => {
     it('should_returnPrefix_when_generated', () => {
       const { key, prefix } = generateApiKey();
 
-      expect(prefix).toBe(key.substring(0, 8));
-      expect(prefix.length).toBe(8);
+      // Prefix is first 16 characters: orch_ (5) + 11 random chars
+      expect(prefix).toBe(key.substring(0, 16));
+      expect(prefix.length).toBe(16);
     });
 
     it('should_returnHashedKey_when_generated', () => {
@@ -218,12 +219,14 @@ describe('API Key Utilities', () => {
   });
 
   describe('getApiKeyPrefix', () => {
-    it('should_returnFirst8Characters_when_givenKey', () => {
-      const key = 'orch_abc123456789012345678901234';
+    it('should_returnFirst16Characters_when_givenKey', () => {
+      const key = 'orch_abc12345678901234567890123456';
       const prefix = getApiKeyPrefix(key);
 
-      expect(prefix).toBe('orch_abc');
-      expect(prefix.length).toBe(8);
+      // Prefix is first 16 characters: orch_ (5) + 11 more chars
+      // From 'orch_abc12345678901234567890123456', first 16 chars = 'orch_abc12345678'
+      expect(prefix).toBe('orch_abc12345678');
+      expect(prefix.length).toBe(16);
     });
 
     it('should_matchGeneratedPrefix_when_calledWithGeneratedKey', () => {
@@ -231,6 +234,18 @@ describe('API Key Utilities', () => {
       const extractedPrefix = getApiKeyPrefix(key);
 
       expect(extractedPrefix).toBe(prefix);
+    });
+
+    it('should_provideHighEntropyForCollisionResistance', () => {
+      // Generate many keys and verify all prefixes are unique
+      // With 64^11 possible prefixes, collisions should be effectively impossible
+      const prefixes = new Set<string>();
+      for (let i = 0; i < 1000; i++) {
+        const { prefix } = generateApiKey();
+        prefixes.add(prefix);
+      }
+      // All 1000 prefixes should be unique
+      expect(prefixes.size).toBe(1000);
     });
   });
 });
