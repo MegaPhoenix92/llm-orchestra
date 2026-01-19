@@ -287,48 +287,52 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
 
       const now = new Date();
 
-      // Create user
-      await db.insert(users).values({
-        id: userId,
-        email,
-        passwordHash,
-        name: name || null,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Create organization
-      await db.insert(organizations).values({
-        id: orgId,
-        name: orgName,
-        slug: finalSlug,
-        plan: 'free',
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Create org membership with owner role
-      await db.insert(orgMembers).values({
-        id: memberId,
-        orgId,
-        userId,
-        role: 'owner',
-        createdAt: now,
-      });
-
-      // Generate token pair
+      // Generate token pair before transaction
       const tokens = generateTokenPair({ userId, email }, jwtSecret);
 
       // Hash refresh token for storage
       const hashedToken = hashRefreshToken(tokens.refreshToken);
 
-      // Store session with hashed refresh token
-      await db.insert(sessions).values({
-        id: sessionId,
-        userId,
-        hashedToken,
-        expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
-        createdAt: now,
+      // Wrap all database operations in a transaction to ensure atomicity
+      // If any operation fails, all changes are rolled back
+      await db.transaction(async (tx) => {
+        // Create user
+        await tx.insert(users).values({
+          id: userId,
+          email,
+          passwordHash,
+          name: name || null,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Create organization
+        await tx.insert(organizations).values({
+          id: orgId,
+          name: orgName,
+          slug: finalSlug,
+          plan: 'free',
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Create org membership with owner role
+        await tx.insert(orgMembers).values({
+          id: memberId,
+          orgId,
+          userId,
+          role: 'owner',
+          createdAt: now,
+        });
+
+        // Store session with hashed refresh token
+        await tx.insert(sessions).values({
+          id: sessionId,
+          userId,
+          hashedToken,
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
+          createdAt: now,
+        });
       });
 
       setRefreshCookie(c, tokens.refreshToken);

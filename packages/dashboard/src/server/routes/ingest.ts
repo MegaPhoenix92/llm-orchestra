@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
+import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../db/index.js';
 import type { NewTrace, NewSpan, NewSpanEvent } from '../../db/schema.js';
 import { traces, spans, spanEvents } from '../../db/schema.js';
@@ -465,6 +466,7 @@ function parseLegacyPayload(payload: LegacyPayload): NormalizedSpan[] {
 
 /**
  * Store normalized spans to database
+ * Uses a transaction to ensure atomicity of trace/span/event inserts
  */
 async function storeSpans(
   db: Database,
@@ -483,143 +485,161 @@ async function storeSpans(
 
   let processed = 0;
 
-  for (const [traceId, traceSpans] of spansByTrace) {
-    // Find root span(s) - spans without parentId or with parentId not in this batch
-    const spanIds = new Set(traceSpans.map((s) => s.spanId));
-    const rootSpans = traceSpans.filter(
-      (s) => !s.parentId || !spanIds.has(s.parentId)
-    );
+  // Wrap all database operations in a transaction for atomicity
+  await db.transaction(async (tx) => {
+    for (const [traceId, traceSpans] of spansByTrace) {
+      // Find root span(s) - spans without parentId or with parentId not in this batch
+      const spanIds = new Set(traceSpans.map((s) => s.spanId));
+      const rootSpans = traceSpans.filter(
+        (s) => !s.parentId || !spanIds.has(s.parentId)
+      );
 
-    // Calculate trace-level aggregates
-    const traceStartTime = new Date(
-      Math.min(...traceSpans.map((s) => s.startTime.getTime()))
-    );
-    const endTimes = traceSpans
-      .map((s) => s.endTime?.getTime())
-      .filter((t): t is number => t !== undefined);
-    const traceEndTime = endTimes.length > 0 ? new Date(Math.max(...endTimes)) : null;
-    const traceDuration = traceEndTime
-      ? traceEndTime.getTime() - traceStartTime.getTime()
-      : null;
+      // Calculate trace-level aggregates
+      const traceStartTime = new Date(
+        Math.min(...traceSpans.map((s) => s.startTime.getTime()))
+      );
+      const endTimes = traceSpans
+        .map((s) => s.endTime?.getTime())
+        .filter((t): t is number => t !== undefined);
+      const traceEndTime = endTimes.length > 0 ? new Date(Math.max(...endTimes)) : null;
+      const traceDuration = traceEndTime
+        ? traceEndTime.getTime() - traceStartTime.getTime()
+        : null;
 
-    // Aggregate tokens and cost from all spans
-    const totalTokensIn = traceSpans.reduce(
-      (sum, s) => sum + (s.tokensIn || 0),
-      0
-    );
-    const totalTokensOut = traceSpans.reduce(
-      (sum, s) => sum + (s.tokensOut || 0),
-      0
-    );
-    const totalCost = traceSpans.reduce(
-      (sum, s) => sum + (s.cost || 0),
-      0
-    );
+      // Aggregate tokens and cost from all spans
+      const totalTokensIn = traceSpans.reduce(
+        (sum, s) => sum + (s.tokensIn || 0),
+        0
+      );
+      const totalTokensOut = traceSpans.reduce(
+        (sum, s) => sum + (s.tokensOut || 0),
+        0
+      );
+      const totalCost = traceSpans.reduce((sum, s) => sum + (s.cost || 0), 0);
 
-    // Determine trace status (error if any span has error)
-    const hasError = traceSpans.some((s) => s.status === 'error');
-    const allOk = traceSpans.every((s) => s.status === 'ok');
-    const traceStatus: 'ok' | 'error' | 'unset' = hasError
-      ? 'error'
-      : allOk
-        ? 'ok'
-        : 'unset';
+      // Determine trace status (error if any span has error)
+      const hasError = traceSpans.some((s) => s.status === 'error');
+      const allOk = traceSpans.every((s) => s.status === 'ok');
+      const traceStatus: 'ok' | 'error' | 'unset' = hasError
+        ? 'error'
+        : allOk
+          ? 'ok'
+          : 'unset';
 
-    // Get primary provider/model from root span or first span with them
-    const primarySpan =
-      rootSpans.find((s) => s.provider || s.model) ||
-      traceSpans.find((s) => s.provider || s.model) ||
-      rootSpans[0] ||
-      traceSpans[0];
+      // Get primary provider/model from root span or first span with them
+      const primarySpan =
+        rootSpans.find((s) => s.provider || s.model) ||
+        traceSpans.find((s) => s.provider || s.model) ||
+        rootSpans[0] ||
+        traceSpans[0];
 
-    // Create trace record
-    const traceRecord: NewTrace = {
-      traceId,
-      projectId,
-      name: primarySpan?.name || 'unnamed',
-      status: traceStatus,
-      startTime: traceStartTime,
-      endTime: traceEndTime,
-      duration: traceDuration,
-      totalCost: totalCost > 0 ? String(totalCost) : null,
-      totalTokensIn: totalTokensIn > 0 ? totalTokensIn : null,
-      totalTokensOut: totalTokensOut > 0 ? totalTokensOut : null,
-      provider: primarySpan?.provider || null,
-      model: primarySpan?.model || null,
-      attributes: primarySpan?.attributes || {},
-    };
-
-    // Insert or update trace (upsert to handle partial trace updates)
-    await db
-      .insert(traces)
-      .values(traceRecord)
-      .onConflictDoUpdate({
-        target: traces.traceId,
-        set: {
-          endTime: traceRecord.endTime,
-          duration: traceRecord.duration,
-          status: traceRecord.status,
-          totalCost: traceRecord.totalCost,
-          totalTokensIn: traceRecord.totalTokensIn,
-          totalTokensOut: traceRecord.totalTokensOut,
-          provider: traceRecord.provider,
-          model: traceRecord.model,
-          attributes: traceRecord.attributes,
-        },
-      });
-
-    // Insert spans
-    for (const span of traceSpans) {
-      const spanRecord: NewSpan = {
-        spanId: span.spanId,
-        traceId: span.traceId,
-        parentId: span.parentId,
-        name: span.name,
-        startTime: span.startTime,
-        endTime: span.endTime,
-        duration: span.duration,
-        status: span.status,
-        attributes: span.attributes,
-        provider: span.provider,
-        model: span.model,
-        tokensIn: span.tokensIn,
-        tokensOut: span.tokensOut,
-        cost: span.cost !== null ? String(span.cost) : null,
+      // Create trace record
+      const traceRecord: NewTrace = {
+        traceId,
+        projectId,
+        name: primarySpan?.name || 'unnamed',
+        status: traceStatus,
+        startTime: traceStartTime,
+        endTime: traceEndTime,
+        duration: traceDuration,
+        totalCost: totalCost > 0 ? String(totalCost) : null,
+        totalTokensIn: totalTokensIn > 0 ? totalTokensIn : null,
+        totalTokensOut: totalTokensOut > 0 ? totalTokensOut : null,
+        provider: primarySpan?.provider || null,
+        model: primarySpan?.model || null,
+        attributes: primarySpan?.attributes || {},
       };
 
-      // Upsert span
-      await db
-        .insert(spans)
-        .values(spanRecord)
-        .onConflictDoUpdate({
-          target: spans.spanId,
-          set: {
-            endTime: spanRecord.endTime,
-            duration: spanRecord.duration,
-            status: spanRecord.status,
-            attributes: spanRecord.attributes,
-            tokensIn: spanRecord.tokensIn,
-            tokensOut: spanRecord.tokensOut,
-            cost: spanRecord.cost,
-          },
-        });
+      // Check if trace exists for this project (to handle cross-project traceId collisions)
+      const existingTrace = await tx
+        .select({ traceId: traces.traceId })
+        .from(traces)
+        .where(and(eq(traces.projectId, projectId), eq(traces.traceId, traceId)))
+        .limit(1);
 
-      // Insert span events
-      for (const event of span.events) {
-        const eventRecord: NewSpanEvent = {
-          id: `evt_${nanoid(16)}`,
-          spanId: span.spanId,
-          name: event.name,
-          timestamp: event.timestamp,
-          attributes: event.attributes,
-        };
-
-        await db.insert(spanEvents).values(eventRecord).onConflictDoNothing();
+      if (existingTrace.length > 0) {
+        // Update existing trace
+        await tx
+          .update(traces)
+          .set({
+            endTime: traceRecord.endTime,
+            duration: traceRecord.duration,
+            status: traceRecord.status,
+            totalCost: traceRecord.totalCost,
+            totalTokensIn: traceRecord.totalTokensIn,
+            totalTokensOut: traceRecord.totalTokensOut,
+            provider: traceRecord.provider,
+            model: traceRecord.model,
+            attributes: traceRecord.attributes,
+          })
+          .where(and(eq(traces.projectId, projectId), eq(traces.traceId, traceId)));
+      } else {
+        // Insert new trace
+        await tx.insert(traces).values(traceRecord);
       }
 
-      processed++;
+      // Insert spans
+      for (const span of traceSpans) {
+        const spanRecord: NewSpan = {
+          spanId: span.spanId,
+          traceId: span.traceId,
+          parentId: span.parentId,
+          name: span.name,
+          startTime: span.startTime,
+          endTime: span.endTime,
+          duration: span.duration,
+          status: span.status,
+          attributes: span.attributes,
+          provider: span.provider,
+          model: span.model,
+          tokensIn: span.tokensIn,
+          tokensOut: span.tokensOut,
+          cost: span.cost !== null ? String(span.cost) : null,
+        };
+
+        // Check if span exists for this trace (to handle cross-trace spanId collisions)
+        const existingSpan = await tx
+          .select({ spanId: spans.spanId })
+          .from(spans)
+          .where(and(eq(spans.traceId, span.traceId), eq(spans.spanId, span.spanId)))
+          .limit(1);
+
+        if (existingSpan.length > 0) {
+          // Update existing span
+          await tx
+            .update(spans)
+            .set({
+              endTime: spanRecord.endTime,
+              duration: spanRecord.duration,
+              status: spanRecord.status,
+              attributes: spanRecord.attributes,
+              tokensIn: spanRecord.tokensIn,
+              tokensOut: spanRecord.tokensOut,
+              cost: spanRecord.cost,
+            })
+            .where(and(eq(spans.traceId, span.traceId), eq(spans.spanId, span.spanId)));
+        } else {
+          // Insert new span
+          await tx.insert(spans).values(spanRecord);
+        }
+
+        // Insert span events
+        for (const event of span.events) {
+          const eventRecord: NewSpanEvent = {
+            id: `evt_${nanoid(16)}`,
+            spanId: span.spanId,
+            name: event.name,
+            timestamp: event.timestamp,
+            attributes: event.attributes,
+          };
+
+          await tx.insert(spanEvents).values(eventRecord).onConflictDoNothing();
+        }
+
+        processed++;
+      }
     }
-  }
+  });
 
   return processed;
 }

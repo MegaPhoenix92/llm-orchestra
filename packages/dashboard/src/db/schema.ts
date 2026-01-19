@@ -156,50 +156,71 @@ export type NewInvitation = InferInsertModel<typeof invitations>;
 
 /**
  * Traces - Root spans with aggregated metrics
+ * Note: traceId is NOT globally unique - it's only unique within a project.
+ * The composite (projectId, traceId) forms the true unique identity.
  */
-export const traces = pgTable('traces', {
-  traceId: text('trace_id').primaryKey(),
-  projectId: text('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  name: text('name'),
-  status: text('status', { enum: ['ok', 'error', 'unset'] }),
-  startTime: timestamp('start_time').notNull(),
-  endTime: timestamp('end_time'),
-  duration: integer('duration'), // in milliseconds
-  totalCost: numeric('total_cost', { precision: 10, scale: 6 }),
-  totalTokensIn: integer('total_tokens_in'),
-  totalTokensOut: integer('total_tokens_out'),
-  provider: text('provider'),
-  model: text('model'),
-  attributes: jsonb('attributes'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const traces = pgTable(
+  'traces',
+  {
+    traceId: text('trace_id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name'),
+    status: text('status', { enum: ['ok', 'error', 'unset'] }),
+    startTime: timestamp('start_time').notNull(),
+    endTime: timestamp('end_time'),
+    duration: integer('duration'), // in milliseconds
+    totalCost: numeric('total_cost', { precision: 10, scale: 6 }),
+    totalTokensIn: integer('total_tokens_in'),
+    totalTokensOut: integer('total_tokens_out'),
+    provider: text('provider'),
+    model: text('model'),
+    attributes: jsonb('attributes'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    // Composite unique constraint: traceId is only unique within a project
+    projectTraceUnique: unique('traces_project_trace_unique').on(
+      table.projectId,
+      table.traceId
+    ),
+  })
+);
 
 export type Trace = InferSelectModel<typeof traces>;
 export type NewTrace = InferInsertModel<typeof traces>;
 
 /**
  * Spans - Individual operations
+ * Note: spanId is NOT globally unique - it's only unique within a trace.
+ * The composite (traceId, spanId) forms the true unique identity.
  */
-export const spans = pgTable('spans', {
-  spanId: text('span_id').primaryKey(),
-  traceId: text('trace_id')
-    .notNull()
-    .references(() => traces.traceId, { onDelete: 'cascade' }),
-  parentId: text('parent_id'),
-  name: text('name').notNull(),
-  startTime: timestamp('start_time').notNull(),
-  endTime: timestamp('end_time'),
-  duration: integer('duration'),
-  status: text('status'),
-  attributes: jsonb('attributes'),
-  provider: text('provider'),
-  model: text('model'),
-  tokensIn: integer('tokens_in'),
-  tokensOut: integer('tokens_out'),
-  cost: numeric('cost', { precision: 10, scale: 6 }),
-});
+export const spans = pgTable(
+  'spans',
+  {
+    spanId: text('span_id').primaryKey(),
+    traceId: text('trace_id')
+      .notNull()
+      .references(() => traces.traceId, { onDelete: 'cascade' }),
+    parentId: text('parent_id'),
+    name: text('name').notNull(),
+    startTime: timestamp('start_time').notNull(),
+    endTime: timestamp('end_time'),
+    duration: integer('duration'),
+    status: text('status'),
+    attributes: jsonb('attributes'),
+    provider: text('provider'),
+    model: text('model'),
+    tokensIn: integer('tokens_in'),
+    tokensOut: integer('tokens_out'),
+    cost: numeric('cost', { precision: 10, scale: 6 }),
+  },
+  (table) => ({
+    // Composite unique constraint: spanId is only unique within a trace
+    traceSpanUnique: unique('spans_trace_span_unique').on(table.traceId, table.spanId),
+  })
+);
 
 export type Span = InferSelectModel<typeof spans>;
 export type NewSpan = InferInsertModel<typeof spans>;

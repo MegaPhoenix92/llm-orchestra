@@ -195,24 +195,28 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const finalSlug = existingOrg.length > 0 ? `${slug}-${nanoid(6)}` : slug;
       const now = new Date();
 
-      // Create organization
-      await db.insert(organizations).values({
-        id: orgId,
-        name: name.trim(),
-        slug: finalSlug,
-        plan: 'free',
-        settings: settings || null,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // Wrap organization and membership creation in a transaction
+      // If either operation fails, both are rolled back
+      await db.transaction(async (tx) => {
+        // Create organization
+        await tx.insert(organizations).values({
+          id: orgId,
+          name: name.trim(),
+          slug: finalSlug,
+          plan: 'free',
+          settings: settings || null,
+          createdAt: now,
+          updatedAt: now,
+        });
 
-      // Create org membership with owner role
-      await db.insert(orgMembers).values({
-        id: memberId,
-        orgId,
-        userId,
-        role: 'owner',
-        createdAt: now,
+        // Create org membership with owner role
+        await tx.insert(orgMembers).values({
+          id: memberId,
+          orgId,
+          userId,
+          role: 'owner',
+          createdAt: now,
+        });
       });
 
       return c.json({
