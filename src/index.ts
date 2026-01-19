@@ -42,6 +42,9 @@ export type {
   MetricsConfig,
   CostTrackingConfig,
   CacheConfig,
+  CacheEmbeddingInput,
+  CacheEmbeddingFunction,
+  CacheKeyFunction,
   RetryConfig,
   ObservabilityConfig,
 
@@ -82,6 +85,9 @@ export {
   mapAttributesToOtel,
 } from './tracing/index.js';
 export type { SpanContext, SpanEvent, SpanData, OtelExporterConfig } from './tracing/index.js';
+
+// Cache exports
+export { SemanticCache } from './cache/index.js';
 
 /**
  * Create an Orchestra instance with minimal configuration

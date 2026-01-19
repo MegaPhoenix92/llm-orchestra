@@ -11,10 +11,12 @@ import type {
   CompletionStream,
   ProviderName,
   ProviderAdapter,
+  TokenUsage,
 } from './types/index.js';
 import { createProviders, getProviderForModel } from './providers/index.js';
 import { Router } from './routing/router.js';
 import { Tracer, createNoopTracer } from './tracing/tracer.js';
+import { SemanticCache } from './cache/semantic-cache.js';
 
 export interface OrchestraStats {
   totalRequests: number;
@@ -42,6 +44,7 @@ export class Orchestra {
   private router: Router;
   private tracer: Tracer;
   private stats: OrchestraStats;
+  private cache?: SemanticCache;
 
   constructor(config: OrchestraConfig) {
     this.config = config;
@@ -54,6 +57,7 @@ export class Orchestra {
     this.tracer = config.observability?.tracing?.enabled
       ? new Tracer(config.observability.tracing)
       : createNoopTracer();
+    this.cache = config.cache?.enabled ? new SemanticCache(config.cache) : undefined;
 
     this.stats = this.initStats();
   }
@@ -63,6 +67,8 @@ export class Orchestra {
    */
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const traceId = this.tracer.generateTraceId();
+    const startTime = Date.now();
+    const cacheEnabled = Boolean(this.cache) && request.cache !== false;
 
     return this.tracer.trace(
       'orchestra.complete',
@@ -72,6 +78,34 @@ export class Orchestra {
           'orchestra.fallback': request.fallback?.join(','),
           'orchestra.tags': request.tags?.join(','),
         });
+
+        if (cacheEnabled && this.cache) {
+          const cached = await this.cache.get(request);
+          if (cached) {
+            const response = this.buildCachedResponse(
+              cached,
+              traceId,
+              Date.now() - startTime
+            );
+
+            this.tracer.recordLLMCall(span, {
+              provider: response.meta.provider,
+              model: response.meta.model,
+              tokens: response.meta.tokens,
+              cost: response.meta.cost,
+              latencyMs: response.meta.latencyMs,
+              cached: response.meta.cached,
+            });
+
+            this.updateStats(response.meta);
+
+            if (this.config.observability?.costTracking?.enabled) {
+              this.checkCostAlerts(response.meta.cost);
+            }
+
+            return response;
+          }
+        }
 
         const result = await this.router.route(request);
         const response = result.response;
@@ -97,6 +131,10 @@ export class Orchestra {
           this.checkCostAlerts(response.meta.cost);
         }
 
+        if (cacheEnabled && this.cache) {
+          await this.cache.set(request, response);
+        }
+
         return response;
       },
       { 'orchestra.trace_id': traceId },
@@ -109,6 +147,7 @@ export class Orchestra {
    */
   async *stream(request: CompletionRequest): CompletionStream {
     const traceId = this.tracer.generateTraceId();
+    const startTime = Date.now();
     const span = this.tracer.startSpan(
       'orchestra.stream',
       {
@@ -117,10 +156,54 @@ export class Orchestra {
       },
       { traceId }
     );
+    const cacheEnabled = Boolean(this.cache) && request.cache !== false;
     let finalMeta: Pick<
       CompletionMeta,
       'provider' | 'model' | 'tokens' | 'cost' | 'latencyMs'
     > | undefined;
+
+    if (cacheEnabled && this.cache) {
+      const cached = await this.cache.get(request);
+      if (cached) {
+        const response = this.buildCachedResponse(
+          cached,
+          traceId,
+          Date.now() - startTime
+        );
+
+        this.tracer.recordLLMCall(span, {
+          provider: response.meta.provider,
+          model: response.meta.model,
+          tokens: response.meta.tokens,
+          cost: response.meta.cost,
+          latencyMs: response.meta.latencyMs,
+          cached: response.meta.cached,
+        });
+
+        this.updateStats(response.meta);
+
+        if (this.config.observability?.costTracking?.enabled) {
+          this.checkCostAlerts(response.meta.cost);
+        }
+
+        if (response.content) {
+          yield { content: response.content };
+        }
+
+        if (response.toolCalls) {
+          yield { toolCalls: response.toolCalls };
+        }
+
+        yield {
+          finishReason: response.finishReason,
+          meta: response.meta,
+        };
+
+        span.setStatus('ok');
+        span.end();
+        return;
+      }
+    }
 
     try {
       const stream = this.router.routeStream(request);
@@ -328,6 +411,38 @@ export class Orchestra {
         `exceeds limit $${config.budgetLimit}`
       );
     }
+  }
+
+  private buildCachedResponse(
+    response: CompletionResponse,
+    traceId: string,
+    latencyMs: number
+  ): CompletionResponse {
+    const tokens: TokenUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+
+    return {
+      content: response.content,
+      toolCalls: response.toolCalls,
+      finishReason: response.finishReason,
+      meta: {
+        ...response.meta,
+        traceId,
+        spanId: this.generateSpanId(),
+        latencyMs,
+        tokens,
+        cost: 0,
+        cached: true,
+        failoverAttempts: 0,
+      },
+    };
+  }
+
+  private generateSpanId(): string {
+    return `span_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 }
 

@@ -71,6 +71,15 @@ export interface CompletionRequest {
   timeout?: number;
 }
 
+export interface CacheEmbeddingInput {
+  text: string;
+  request: CompletionRequest;
+}
+
+export type CacheEmbeddingFunction = (input: CacheEmbeddingInput) => Promise<number[]>;
+
+export type CacheKeyFunction = (request: CompletionRequest) => string;
+
 export interface ToolDefinition {
   type: 'function';
   function: {
@@ -162,6 +171,8 @@ export interface CacheConfig {
   ttlSeconds?: number;
   maxSize?: number;
   similarityThreshold?: number;
+  embeddingFunction?: CacheEmbeddingFunction;
+  keyFunction?: CacheKeyFunction;
 }
 
 export interface RetryConfig {
