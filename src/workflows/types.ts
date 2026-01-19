@@ -20,7 +20,7 @@ export interface WorkflowStepResult<TState = Record<string, unknown>, TResult = 
   metadata?: Record<string, unknown>;
 }
 
-export interface WorkflowContext<TState = Record<string, unknown>, TResult = unknown> {
+export interface WorkflowContext<TState = Record<string, unknown>, _TResult = unknown> {
   state: TState;
   stepId: string;
   stepIndex: number;
