@@ -43,6 +43,7 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
+    "docs:api": "typedoc --options typedoc.json",
     "dashboard": "npm run dev -w llm-orchestra-dashboard",
     "dashboard:cli": "npm run cli -w llm-orchestra-dashboard",
     "prepublishOnly": "npm run build"
@@ -86,6 +87,7 @@
     "@vitest/ui": "^1.6.1",
     "eslint": "^8.0.0",
     "tsx": "^4.0.0",
+    "typedoc": "^0.25.13",
     "typescript": "^5.0.0",
     "vitest": "^1.6.1"
   },

@@ -42,6 +42,9 @@ agentcoord.md
 # Test coverage
 coverage/
 
+# Generated docs
+docs/api/
+
 # Cache
 .cache/
 .turbo/
