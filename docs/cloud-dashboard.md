@@ -15,7 +15,7 @@ Set these in your process environment:
 - `DATABASE_URL` - PostgreSQL connection string
 - `JWT_SECRET` - long random string used to sign JWTs
 - `PORT` - optional (default: 3737)
-- `HOSTNAME` - optional (default: localhost)
+- `HOSTNAME` - optional (default: localhost). Set to `0.0.0.0` to listen on all interfaces.
 
 ## Database Setup
 
@@ -41,7 +41,7 @@ import { createCloudDashboard } from 'llm-orchestra-dashboard';
 
 const dashboard = await createCloudDashboard({
   port: Number(process.env.PORT || 3737),
-  hostname: process.env.HOSTNAME || '0.0.0.0',
+  hostname: process.env.HOSTNAME || 'localhost',
   database: { connectionString: process.env.DATABASE_URL! },
   auth: { jwtSecret: process.env.JWT_SECRET! },
 });
@@ -66,14 +66,16 @@ Or build the package and run the compiled output if you prefer production mode.
 
 ```bash
 curl -s -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"strong-pass","orgName":"Acme"}' \
+  -d '{"email":"you@example.com","password":"strong-password-123","orgName":"Acme"}' \
   http://localhost:3737/api/auth/register
 ```
 
-The response includes an access token under `tokens.accessToken`. Save it:
+The response includes an access token under `tokens.accessToken` and the
+organization ID under `organization.id`. Save them:
 
 ```bash
 ACCESS_TOKEN=...
+ORG_ID=org_...
 ```
 
 2) Create a project:
@@ -81,8 +83,14 @@ ACCESS_TOKEN=...
 ```bash
 curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"orgId":"org_...","name":"prod"}' \
+  -d "{\"orgId\":\"$ORG_ID\",\"name\":\"prod\"}" \
   http://localhost:3737/api/admin/projects
+```
+
+The response includes the project ID under `project.id`:
+
+```bash
+PROJECT_ID=proj_...
 ```
 
 3) Create an API key for ingestion:
@@ -90,7 +98,7 @@ curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
 ```bash
 curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"projectId":"prj_...","name":"default","scopes":["ingest"]}' \
+  -d "{\"projectId\":\"$PROJECT_ID\",\"name\":\"default\",\"scopes\":[\"ingest\"]}" \
   http://localhost:3737/api/admin/api-keys
 ```
 
@@ -113,7 +121,7 @@ curl -s -H "Authorization: Bearer $INGEST_KEY" \
 
 ```bash
 curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
-  "http://localhost:3737/api/traces?projectId=prj_..."
+  "http://localhost:3737/api/traces?projectId=$PROJECT_ID"
 ```
 
 ## Deployment Notes
