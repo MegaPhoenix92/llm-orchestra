@@ -3,7 +3,31 @@
   "version": "0.1.0",
   "description": "Unified Observability & Orchestration SDK for Multi-Model AI Applications",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
+    },
+    "./tracing": {
+      "types": "./dist/tracing/index.d.ts",
+      "import": "./dist/tracing/index.js"
+    },
+    "./routing": {
+      "types": "./dist/routing/index.d.ts",
+      "import": "./dist/routing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "workspaces": [
     "packages/*"
   ],
@@ -20,7 +44,8 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
     "dashboard": "npm run dev -w @llm-orchestra/dashboard",
-    "dashboard:cli": "npm run cli -w @llm-orchestra/dashboard"
+    "dashboard:cli": "npm run cli -w @llm-orchestra/dashboard",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "llm",
@@ -33,7 +58,9 @@
     "gpt",
     "gemini",
     "tracing",
-    "multi-model"
+    "multi-model",
+    "failover",
+    "cost-tracking"
   ],
   "author": "TROZLAN <info@trozlan.io>",
   "license": "MIT",
@@ -47,6 +74,9 @@
   "homepage": "https://github.com/MegaPhoenix92/llm-orchestra#readme",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
