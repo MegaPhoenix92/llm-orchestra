@@ -8,6 +8,8 @@ import type {
   ProviderName,
   TokenUsage,
   TracingExportMode,
+  Message,
+  ToolCall,
 } from '../types/index.js';
 import { OtlpHttpExporter } from './otel/exporter.js';
 
@@ -288,6 +290,53 @@ export class Tracer {
     if (this.config.includePrompts) {
       // Would be set by caller with actual prompt content
     }
+  }
+
+  /**
+   * Record tool call events on a span
+   */
+  recordToolCalls(span: Span, toolCalls: ToolCall[] | undefined): void {
+    if (!toolCalls || toolCalls.length === 0) return;
+
+    span.setAttribute('llm.tool_calls.count', toolCalls.length);
+
+    toolCalls.forEach((toolCall, index) => {
+      const attributes: Record<string, unknown> = {
+        'tool.id': toolCall.id,
+        'tool.name': toolCall.function?.name,
+        'tool.index': index,
+      };
+
+      if (this.config.includePrompts && toolCall.function?.arguments) {
+        attributes['tool.arguments'] = toolCall.function.arguments;
+      }
+
+      span.addEvent('llm.tool_call', attributes);
+    });
+  }
+
+  /**
+   * Record tool result events (tool role messages) on a span
+   */
+  recordToolResults(span: Span, messages: Message[] | undefined): void {
+    if (!messages) return;
+    const toolMessages = messages.filter((message) => message.role === 'tool');
+    if (toolMessages.length === 0) return;
+
+    span.setAttribute('llm.tool_results.count', toolMessages.length);
+
+    toolMessages.forEach((message, index) => {
+      const attributes: Record<string, unknown> = {
+        'tool.id': message.toolCallId,
+        'tool.index': index,
+      };
+
+      if (this.config.includeResponses) {
+        attributes['tool.result'] = message.content;
+      }
+
+      span.addEvent('llm.tool_result', attributes);
+    });
   }
 
   /**

@@ -188,9 +188,9 @@ const result = await trace('user-question-flow', async (span) => {
 
 ### Phase 3: Agent Orchestration (Q3 2026)
 - [x] Multi-agent coordination primitives
-- [ ] Tool call tracing
-- [ ] Workflow engine
-- [ ] Memory backends
+- [x] Tool call tracing
+- [x] Workflow engine
+- [x] Memory backends
 
 ### Phase 4: Enterprise (Q4 2026)
 - [ ] Cloud dashboard
