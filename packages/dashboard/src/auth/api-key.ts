@@ -68,7 +68,8 @@ export function hashApiKey(key: string): string {
 export function verifyApiKey(key: string, hashedKey: string): boolean {
   const computedHash = hashApiKey(key);
   // Use timing-safe comparison to prevent timing attacks
-  return crypto.timingSafeEqual(Buffer.from(computedHash), Buffer.from(hashedKey));
+  // Must specify 'hex' encoding since both hashes are hexadecimal strings
+  return crypto.timingSafeEqual(Buffer.from(computedHash, 'hex'), Buffer.from(hashedKey, 'hex'));
 }
 
 /**

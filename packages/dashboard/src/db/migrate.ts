@@ -62,8 +62,9 @@ export interface MigrateResult {
 export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
   const { connectionString, migrationsFolder, verbose = false } = options;
 
-  // Default migrations folder is ./migrations relative to this file
-  const defaultMigrationsFolder = resolve(__dirname, 'migrations');
+  // Default migrations folder is at package root (../../migrations from dist/db/)
+  // After compilation, __dirname is dist/db, so we go up two levels to package root
+  const defaultMigrationsFolder = resolve(__dirname, '../../migrations');
   const folder = migrationsFolder ?? defaultMigrationsFolder;
 
   if (verbose) {
