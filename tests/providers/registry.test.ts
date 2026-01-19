@@ -86,15 +86,17 @@ describe('Provider Registry', () => {
         openai: { apiKey: 'test-openai-key' },
         google: { apiKey: 'test-google-key' },
         mistral: { apiKey: 'test-mistral-key' },
+        cohere: { apiKey: 'test-cohere-key' },
       };
 
       const providers = createProviders(config);
 
-      expect(providers.size).toBe(4);
+      expect(providers.size).toBe(5);
       expect(providers.has('anthropic')).toBe(true);
       expect(providers.has('openai')).toBe(true);
       expect(providers.has('google')).toBe(true);
       expect(providers.has('mistral')).toBe(true);
+      expect(providers.has('cohere')).toBe(true);
     });
 
     it('should_skipProvider_when_noApiKey', () => {
@@ -183,6 +185,14 @@ describe('Provider Registry', () => {
       });
     });
 
+    describe('Cohere models', () => {
+      it('should_returnCohere_when_commandModel', () => {
+        expect(getProviderForModel('command')).toBe('cohere');
+        expect(getProviderForModel('command-r')).toBe('cohere');
+        expect(getProviderForModel('command-r-plus')).toBe('cohere');
+      });
+    });
+
     describe('Unknown models', () => {
       it('should_returnUndefined_when_unknownModel', () => {
         expect(getProviderForModel('unknown-model')).toBeUndefined();
@@ -227,6 +237,14 @@ describe('Provider Registry', () => {
       expect(models).toContain('mistral-large');
       expect(models).toContain('mistral-medium');
       expect(models).toContain('mistral-small');
+    });
+
+    it('should_returnCohereModels_when_cohereProvider', () => {
+      const models = getModelsForProvider('cohere');
+
+      expect(models).toContain('command');
+      expect(models).toContain('command-r');
+      expect(models).toContain('command-r-plus');
     });
   });
 });
