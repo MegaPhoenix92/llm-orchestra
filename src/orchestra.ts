@@ -12,6 +12,7 @@ import type {
   ProviderName,
   ProviderAdapter,
   TokenUsage,
+  ToolCall,
 } from './types/index.js';
 import { createProviders, getProviderForModel } from './providers/index.js';
 import { Router } from './routing/router.js';
@@ -79,6 +80,8 @@ export class Orchestra {
           'orchestra.tags': request.tags?.join(','),
         });
 
+        this.tracer.recordToolResults(span, request.messages);
+
         if (cacheEnabled && this.cache) {
           const cached = await this.cache.get(request);
           if (cached) {
@@ -96,6 +99,7 @@ export class Orchestra {
               latencyMs: response.meta.latencyMs,
               cached: response.meta.cached,
             });
+            this.tracer.recordToolCalls(span, response.toolCalls);
 
             this.updateStats(response.meta);
 
@@ -122,6 +126,7 @@ export class Orchestra {
           latencyMs: response.meta.latencyMs,
           cached: response.meta.cached,
         });
+        this.tracer.recordToolCalls(span, response.toolCalls);
 
         // Update stats
         this.updateStats(response.meta);
@@ -157,10 +162,15 @@ export class Orchestra {
       { traceId }
     );
     const cacheEnabled = Boolean(this.cache) && request.cache !== false;
+    const collectedToolCalls: ToolCall[] = [];
+    const toolCallIndex = { value: 0 };
+    const toolCallByKey = new Map<string, ToolCall>();
     let finalMeta: Pick<
       CompletionMeta,
       'provider' | 'model' | 'tokens' | 'cost' | 'latencyMs'
     > | undefined;
+
+    this.tracer.recordToolResults(span, request.messages);
 
     if (cacheEnabled && this.cache) {
       const cached = await this.cache.get(request);
@@ -179,6 +189,7 @@ export class Orchestra {
           latencyMs: response.meta.latencyMs,
           cached: response.meta.cached,
         });
+        this.tracer.recordToolCalls(span, response.toolCalls);
 
         this.updateStats(response.meta);
 
@@ -209,6 +220,15 @@ export class Orchestra {
       const stream = this.router.routeStream(request);
 
       for await (const chunk of stream) {
+        if (chunk.toolCalls) {
+          this.mergeToolCalls(
+            collectedToolCalls,
+            toolCallByKey,
+            toolCallIndex,
+            chunk.toolCalls
+          );
+        }
+
         // Augment final chunk with trace ID
         if (chunk.meta) {
           chunk.meta.traceId = traceId;
@@ -249,6 +269,10 @@ export class Orchestra {
         if (this.config.observability?.costTracking?.enabled) {
           this.checkCostAlerts(finalMeta.cost);
         }
+      }
+
+      if (collectedToolCalls.length > 0) {
+        this.tracer.recordToolCalls(span, collectedToolCalls);
       }
 
       span.setStatus('ok');
@@ -443,6 +467,58 @@ export class Orchestra {
 
   private generateSpanId(): string {
     return `span_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  private mergeToolCalls(
+    target: ToolCall[],
+    byKey: Map<string, ToolCall>,
+    counter: { value: number },
+    partials: Partial<ToolCall>[]
+  ): void {
+    for (const partial of partials) {
+      if (!partial.id && !partial.function?.name && !partial.function?.arguments) {
+        continue;
+      }
+
+      const key = partial.id ?? `unknown_${counter.value++}`;
+      let existing = byKey.get(key);
+
+      if (!existing) {
+        existing = {
+          id: partial.id ?? key,
+          type: 'function',
+          function: {
+            name: '',
+            arguments: '',
+          },
+        };
+        byKey.set(key, existing);
+        target.push(existing);
+      }
+
+      if (partial.type) {
+        existing.type = partial.type;
+      }
+
+      if (partial.function?.name) {
+        existing.function.name = partial.function.name;
+      }
+
+      if (partial.function?.arguments) {
+        existing.function.arguments = this.mergeArguments(
+          existing.function.arguments,
+          partial.function.arguments
+        );
+      }
+    }
+  }
+
+  private mergeArguments(existing: string, incoming: string): string {
+    if (!existing) return incoming;
+    if (!incoming) return existing;
+    if (incoming.startsWith(existing)) return incoming;
+    if (existing.startsWith(incoming)) return existing;
+    return existing + incoming;
   }
 }
 

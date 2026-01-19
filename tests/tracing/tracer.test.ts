@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Tracer, Span, createNoopTracer, SpanData } from '../../src/tracing/tracer.js';
-import type { TracingConfig, TokenUsage } from '../../src/types/index.js';
+import type { TracingConfig, TokenUsage, ToolCall, Message } from '../../src/types/index.js';
 
 describe('Span', () => {
   let tracer: Tracer;
@@ -650,6 +650,75 @@ describe('Tracer', () => {
       expect(data.attributes['llm.cost']).toBe(0.005);
       expect(data.attributes['llm.latency_ms']).toBe(250);
       expect(data.attributes['llm.cached']).toBe(false);
+    });
+  });
+
+  describe('recordToolCalls', () => {
+    it('should_addToolCallEvents_when_called', () => {
+      const toolTracer = new Tracer({ enabled: true, includePrompts: true });
+      const span = toolTracer.startSpan('tool-call');
+      const toolCalls: ToolCall[] = [
+        {
+          id: 'tool_1',
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            arguments: '{"city":"LA"}',
+          },
+        },
+      ];
+
+      toolTracer.recordToolCalls(span, toolCalls);
+
+      const data = span.getData();
+      expect(data.attributes['llm.tool_calls.count']).toBe(1);
+      expect(data.events).toHaveLength(1);
+      expect(data.events[0].name).toBe('llm.tool_call');
+      expect(data.events[0].attributes?.['tool.name']).toBe('get_weather');
+      expect(data.events[0].attributes?.['tool.arguments']).toBe('{"city":"LA"}');
+    });
+
+    it('should_omitArguments_when_includePromptsDisabled', () => {
+      const toolTracer = new Tracer({ enabled: true, includePrompts: false });
+      const span = toolTracer.startSpan('tool-call');
+      const toolCalls: ToolCall[] = [
+        {
+          id: 'tool_1',
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            arguments: '{"city":"LA"}',
+          },
+        },
+      ];
+
+      toolTracer.recordToolCalls(span, toolCalls);
+
+      const data = span.getData();
+      expect(data.events[0].attributes?.['tool.arguments']).toBeUndefined();
+    });
+  });
+
+  describe('recordToolResults', () => {
+    it('should_addToolResultEvents_when_called', () => {
+      const toolTracer = new Tracer({ enabled: true, includeResponses: true });
+      const span = toolTracer.startSpan('tool-result');
+      const messages: Message[] = [
+        {
+          role: 'tool',
+          content: 'result payload',
+          toolCallId: 'tool_1',
+        },
+      ];
+
+      toolTracer.recordToolResults(span, messages);
+
+      const data = span.getData();
+      expect(data.attributes['llm.tool_results.count']).toBe(1);
+      expect(data.events).toHaveLength(1);
+      expect(data.events[0].name).toBe('llm.tool_result');
+      expect(data.events[0].attributes?.['tool.id']).toBe('tool_1');
+      expect(data.events[0].attributes?.['tool.result']).toBe('result payload');
     });
   });
 

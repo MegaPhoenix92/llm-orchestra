@@ -89,6 +89,22 @@ export type { SpanContext, SpanEvent, SpanData, OtelExporterConfig } from './tra
 // Cache exports
 export { SemanticCache } from './cache/index.js';
 
+// Workflow exports
+export { WorkflowEngine } from './workflows/index.js';
+export type {
+  WorkflowDefinition,
+  WorkflowContext,
+  WorkflowStep,
+  WorkflowStepExecution,
+  WorkflowStepResult,
+  WorkflowRunResult,
+  WorkflowEngineOptions,
+} from './workflows/index.js';
+
+// Memory exports
+export { InMemoryMemoryBackend } from './memory/index.js';
+export type { MemoryBackend, InMemoryMemoryConfig } from './memory/index.js';
+
 /**
  * Create an Orchestra instance with minimal configuration
  */
