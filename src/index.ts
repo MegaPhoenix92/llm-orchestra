@@ -115,7 +115,7 @@ export function createOrchestra(config: {
   enableTracing?: boolean;
   enableCostTracking?: boolean;
 }): import('./orchestra.js').Orchestra {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Orchestra: OrchestraClass } = require('./orchestra.js');
 
   return new OrchestraClass({
