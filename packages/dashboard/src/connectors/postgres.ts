@@ -3,7 +3,7 @@
  * Connects dashboard to PostgreSQL database for persistent storage
  */
 
-import { eq, desc, and, gte, sql, count, avg, sum } from 'drizzle-orm';
+import { eq, desc, and, gte, gt, sql, count, avg, sum, inArray } from 'drizzle-orm';
 import type {
   DashboardConnector,
   DashboardStats,
@@ -445,7 +445,7 @@ export class PostgresConnector implements DashboardConnector {
         const allEvents = await this.db
           .select()
           .from(spanEvents)
-          .where(sql`${spanEvents.spanId} = ANY(${spanIds})`);
+          .where(inArray(spanEvents.spanId, spanIds));
 
         // Build span-to-events map
         const spanEventsMap = new Map<string, SpanEvent[]>();
@@ -572,7 +572,7 @@ export class PostgresConnector implements DashboardConnector {
     const whereClause = this.lastTraceTime
       ? and(
           eq(traces.projectId, this.projectId),
-          sql`${traces.startTime} > ${this.lastTraceTime}`
+          gt(traces.startTime, this.lastTraceTime)
         )
       : eq(traces.projectId, this.projectId);
 

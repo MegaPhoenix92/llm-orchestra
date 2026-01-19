@@ -9,6 +9,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../db/index.js';
 import type { NewTrace, NewSpan, NewSpanEvent } from '../../db/schema.js';
 import { traces, spans, spanEvents } from '../../db/schema.js';
+import { createRateLimiter } from '../../utils/rate-limit.js';
 
 // ============================================================================
 // Types
@@ -122,60 +123,15 @@ interface NormalizedSpan {
 // Rate Limiting
 // ============================================================================
 
-interface RateLimitEntry {
-  count: number;
-  windowStart: number;
-}
-
-const rateLimitStore = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
 
-/**
- * Check and update rate limit for an API key
- * Returns true if request is allowed, false if rate limited
- */
-function checkRateLimit(apiKeyId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitStore.get(apiKeyId);
-
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    // New window
-    rateLimitStore.set(apiKeyId, { count: 1, windowStart: now });
-    return true;
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
-    return false;
-  }
-
-  entry.count++;
-  return true;
-}
-
-/**
- * Get remaining rate limit for an API key
- */
-function getRateLimitRemaining(apiKeyId: string): number {
-  const entry = rateLimitStore.get(apiKeyId);
-  if (!entry || Date.now() - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    return RATE_LIMIT_MAX_REQUESTS;
-  }
-  return Math.max(0, RATE_LIMIT_MAX_REQUESTS - entry.count);
-}
-
-/**
- * Cleanup old rate limit entries periodically
- */
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitStore.entries()) {
-    if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-      rateLimitStore.delete(key);
-    }
-  }
-}, RATE_LIMIT_WINDOW_MS);
+/** Rate limiter for ingest endpoints */
+const ingestRateLimiter = createRateLimiter({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  maxRequests: RATE_LIMIT_MAX_REQUESTS,
+});
 
 class BodyTooLargeError extends Error {
   constructor(message: string) {
@@ -693,27 +649,23 @@ export function createIngestRoutes(options: IngestRoutesOptions): Hono {
     }
 
     // Check rate limit
-    if (!checkRateLimit(apiKey.id)) {
-      const remaining = getRateLimitRemaining(apiKey.id);
-      c.header('X-RateLimit-Limit', String(RATE_LIMIT_MAX_REQUESTS));
-      c.header('X-RateLimit-Remaining', String(remaining));
-      c.header('X-RateLimit-Reset', String(Math.ceil(Date.now() / 1000) + 60));
+    const rate = ingestRateLimiter.check(apiKey.id);
+    c.header('X-RateLimit-Limit', String(RATE_LIMIT_MAX_REQUESTS));
+    c.header('X-RateLimit-Remaining', String(rate.remaining));
+    c.header('X-RateLimit-Reset', String(Math.ceil(rate.resetAt / 1000)));
 
+    if (!rate.allowed) {
+      const retryAfter = Math.ceil((rate.resetAt - Date.now()) / 1000);
       return c.json(
         {
           success: false,
           error: 'Rate limit exceeded',
           message: `Maximum ${RATE_LIMIT_MAX_REQUESTS} requests per minute exceeded`,
-          retryAfter: 60,
+          retryAfter,
         },
         429
       );
     }
-
-    // Set rate limit headers
-    const remaining = getRateLimitRemaining(apiKey.id);
-    c.header('X-RateLimit-Limit', String(RATE_LIMIT_MAX_REQUESTS));
-    c.header('X-RateLimit-Remaining', String(remaining));
 
     // Parse request body
     let payload: IngestPayload;
