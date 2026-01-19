@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-01-19
+
+### Added
+
+- **Providers**
+  - Mistral (REST + streaming)
+  - Cohere (chat completions)
+  - Azure OpenAI (deployment-based REST + streaming)
+- **Observability**
+  - OTLP/HTTP trace export for OpenTelemetry backends
+  - Tool call tracing events (tool calls + tool results)
+- **Workflow & Memory**
+  - Workflow engine with step routing, error handling, and tracing hooks
+  - In-memory conversation memory backend with TTL + max item pruning
+- **Developer Experience**
+  - Streaming usage example
+  - API docs pipeline via TypeDoc + GitHub Pages
+- **Dashboard**
+  - View updates and CLI refinements (stats, traces, costs, health)
+
 ## [0.1.0] - 2026-01-18
 
 ### Added
@@ -42,5 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | OpenAI | GPT-4, GPT-3.5-Turbo | Streaming, Tools |
 | Google | Gemini 1.5 Pro, Flash | Streaming, Tools |
 
-[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MegaPhoenix92/llm-orchestra/releases/tag/v0.1.0
