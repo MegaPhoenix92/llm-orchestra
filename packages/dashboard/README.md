@@ -51,6 +51,10 @@ const response = await orchestra.complete({
 // Dashboard shows real-time stats and traces
 ```
 
+### Cloud Deployment
+
+See the [cloud dashboard docs](https://github.com/MegaPhoenix92/llm-orchestra/blob/main/docs/cloud-dashboard.md) for full setup steps and API examples.
+
 ### CLI Commands
 
 ```bash
