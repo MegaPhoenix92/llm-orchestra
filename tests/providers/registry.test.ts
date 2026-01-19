@@ -85,14 +85,16 @@ describe('Provider Registry', () => {
         anthropic: { apiKey: 'test-anthropic-key' },
         openai: { apiKey: 'test-openai-key' },
         google: { apiKey: 'test-google-key' },
+        mistral: { apiKey: 'test-mistral-key' },
       };
 
       const providers = createProviders(config);
 
-      expect(providers.size).toBe(3);
+      expect(providers.size).toBe(4);
       expect(providers.has('anthropic')).toBe(true);
       expect(providers.has('openai')).toBe(true);
       expect(providers.has('google')).toBe(true);
+      expect(providers.has('mistral')).toBe(true);
     });
 
     it('should_skipProvider_when_noApiKey', () => {
@@ -219,11 +221,12 @@ describe('Provider Registry', () => {
       expect(models).toContain('gemini-2.0-flash');
     });
 
-    it('should_returnEmptyArray_when_mistralProvider', () => {
-      // Mistral is detected by prefix, not explicit mapping
+    it('should_returnMistralModels_when_mistralProvider', () => {
       const models = getModelsForProvider('mistral');
-      // May or may not have models depending on implementation
-      expect(Array.isArray(models)).toBe(true);
+
+      expect(models).toContain('mistral-large');
+      expect(models).toContain('mistral-medium');
+      expect(models).toContain('mistral-small');
     });
   });
 });

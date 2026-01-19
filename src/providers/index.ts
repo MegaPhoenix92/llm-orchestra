@@ -7,11 +7,13 @@ export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
 export { OpenAIProvider } from './openai.js';
 export { GoogleProvider } from './google.js';
+export { MistralProvider } from './mistral.js';
 
 import type { ProviderAdapter, ProviderName, ProvidersConfig } from '../types/index.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
 import { GoogleProvider } from './google.js';
+import { MistralProvider } from './mistral.js';
 
 /**
  * Model to provider mapping
@@ -44,6 +46,13 @@ const MODEL_PROVIDER_MAP: Record<string, ProviderName> = {
   'gemini-1.5-pro': 'google',
   'gemini-1.5-flash': 'google',
   'gemini-2.0-flash': 'google',
+
+  // Mistral models
+  'mistral-large': 'mistral',
+  'mistral-large-latest': 'mistral',
+  'mistral-medium': 'mistral',
+  'mistral-small': 'mistral',
+  'mistral-small-latest': 'mistral',
 };
 
 /**
@@ -62,6 +71,10 @@ export function createProviders(config: ProvidersConfig): Map<ProviderName, Prov
 
   if (config.google?.apiKey) {
     providers.set('google', new GoogleProvider(config.google));
+  }
+
+  if (config.mistral?.apiKey) {
+    providers.set('mistral', new MistralProvider(config.mistral));
   }
 
   return providers;
