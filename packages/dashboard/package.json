@@ -12,7 +12,9 @@
     "build": "tsc",
     "dev": "tsx watch src/server/app.ts",
     "cli": "tsx src/cli/index.ts",
-    "start": "node dist/server/app.js"
+    "start": "node dist/server/app.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "llm-orchestra",

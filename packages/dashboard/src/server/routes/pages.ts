@@ -6,18 +6,7 @@
 import { Hono } from 'hono';
 import type { ProviderName } from 'llm-orchestra';
 import type { DashboardConnector } from '../../connectors/types.js';
-
-/**
- * Escape HTML to prevent XSS attacks
- */
-function escapeHtml(unsafe: string): string {
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+import { escapeHtml } from '../../utils/html.js';
 
 function layout(title: string, content: string): string {
   return `<!DOCTYPE html>
