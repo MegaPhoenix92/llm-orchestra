@@ -181,8 +181,8 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] Local dashboard
 
 ### Phase 2: Production Features (Q2 2026)
-- [ ] Python SDK
-- [ ] Semantic caching
+- [x] Python SDK
+- [x] Semantic caching
 - [x] Automatic failover and retries
 - [x] OpenTelemetry export
 
