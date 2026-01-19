@@ -12,7 +12,12 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
 
     // Test file patterns
-    include: ['tests/**/*.test.ts', 'tests/**/*.spec.ts'],
+    include: [
+      'tests/**/*.test.ts',
+      'tests/**/*.spec.ts',
+      'packages/**/tests/**/*.test.ts',
+      'packages/**/tests/**/*.spec.ts',
+    ],
 
     // Coverage configuration
     coverage: {
