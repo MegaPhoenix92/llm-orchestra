@@ -1,89 +1,63 @@
 /**
- * Shared types for dashboard connectors
+ * Dashboard Connector Types
+ * Interfaces for connecting the dashboard to Orchestra instances
  */
 
-import type { SpanData } from 'llm-orchestra';
-
-export interface DashboardStats {
-  totalRequests: number;
-  totalTokens: { input: number; output: number };
-  totalCost: number;
-  byProvider: Record<string, ProviderStats>;
-  byModel: Record<string, ModelStats>;
-}
-
-export interface ProviderStats {
-  requests: number;
-  tokens: { input: number; output: number };
-  cost: number;
-  avgLatencyMs: number;
-}
-
-export interface ModelStats {
-  requests: number;
-  tokens: { input: number; output: number };
-  cost: number;
-}
+import type { OrchestraStats } from 'llm-orchestra';
 
 export interface ProviderHealth {
   name: string;
   available: boolean;
   lastChecked: number;
-  failoverCount: number;
-  avgLatencyMs: number;
+  avgLatencyMs?: number;
 }
 
-export interface TraceListItem {
-  traceId: string;
+export interface TraceInfo {
+  id: string;
   name: string;
   startTime: number;
-  duration: number;
-  status: 'ok' | 'error' | 'unset';
-  provider?: string;
-  model?: string;
-  tokens?: { input: number; output: number };
-  cost?: number;
-  spanCount?: number;
+  endTime?: number;
+  durationMs?: number;
+  status: 'ok' | 'error' | 'pending';
+  attributes: Record<string, unknown>;
+  events: TraceEvent[];
+  children: TraceInfo[];
 }
 
-export interface TraceDetail {
+export interface TraceEvent {
+  name: string;
+  timestamp: number;
+  attributes: Record<string, unknown>;
+}
+
+export interface DashboardStats extends OrchestraStats {
+  uptime: number;
+  requestsPerMinute: number;
+  activeProviders: string[];
+}
+
+export interface RecentRequest {
+  timestamp: number;
   traceId: string;
-  spans: SpanData[];
-  totalDuration: number;
-  rootSpan: SpanData;
+  provider: string;
+  model: string;
+  tokens: { input: number; output: number };
+  cost: number;
+  latencyMs: number;
+  status: 'ok' | 'error';
 }
 
 export interface DashboardConnector {
   getStats(): Promise<DashboardStats>;
-  getTraces(options?: TraceQueryOptions): Promise<TraceListItem[]>;
-  getTraceDetail(traceId: string): Promise<TraceDetail | null>;
+  getTraces(options?: { limit?: number; offset?: number }): Promise<TraceInfo[]>;
+  getTrace(traceId: string): Promise<TraceInfo | undefined>;
   getProviderHealth(): Promise<ProviderHealth[]>;
+  getRecentRequests(limit?: number): Promise<RecentRequest[]>;
   subscribe(callback: (event: DashboardEvent) => void): () => void;
-  shutdown?: () => void;
 }
 
-export interface TraceQueryOptions {
-  limit?: number;
-  offset?: number;
-  status?: 'ok' | 'error';
-  provider?: string;
-  model?: string;
-  startTime?: number;
-  endTime?: number;
-}
-
-export type DashboardEventType = 'stats_update' | 'new_trace' | 'health_change';
-
-export interface DashboardEvent {
-  type: DashboardEventType;
-  timestamp: number;
-  data: unknown;
-}
-
-export interface DashboardConfig {
-  port: number;
-  host?: string;
-  open?: boolean;
-  traceBufferSize?: number;
-  retentionMs?: number;
-}
+export type DashboardEvent =
+  | { type: 'stats'; data: DashboardStats }
+  | { type: 'request'; data: RecentRequest }
+  | { type: 'trace'; data: TraceInfo }
+  | { type: 'health'; data: ProviderHealth[] };

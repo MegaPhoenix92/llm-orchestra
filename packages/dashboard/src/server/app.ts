@@ -1,119 +1,113 @@
 /**
- * Main Hono app for the dashboard server
+ * Dashboard Server
+ * Hono-based web server for the LLM Orchestra dashboard
  */
 
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
-import type { Orchestra } from 'llm-orchestra';
-import { MemoryConnector } from '../connectors/memory.js';
-import type { DashboardConfig, DashboardConnector } from '../connectors/types.js';
+import { logger } from 'hono/logger';
+import type { DashboardConnector } from '../connectors/types.js';
 import { createApiRoutes } from './routes/api.js';
-import { createSSERoutes } from './routes/sse.js';
+import { createSseRoutes } from './routes/sse.js';
 import { createPageRoutes } from './routes/pages.js';
+
+export interface DashboardServerOptions {
+  port?: number;
+  hostname?: string;
+  open?: boolean;
+}
 
 export interface DashboardServer {
   app: Hono;
-  connector: DashboardConnector;
   start(): Promise<void>;
-  stop(): void;
-  getUrl(): string;
+  stop(): Promise<void>;
+  port: number;
 }
 
-function normalizeConfig(config: Partial<DashboardConfig>): DashboardConfig {
-  return {
-    port: config.port ?? 3737,
-    host: config.host ?? '0.0.0.0',
-    open: config.open ?? false,
-    traceBufferSize: config.traceBufferSize ?? 100,
-    retentionMs: config.retentionMs ?? 3600000, // 1 hour
-  };
-}
-
-export function createDashboardApp(connector: DashboardConnector): Hono {
+export function createDashboardServer(
+  connector: DashboardConnector,
+  options: DashboardServerOptions = {}
+): DashboardServer {
+  const port = options.port ?? 3737;
+  const hostname = options.hostname ?? 'localhost';
   const app = new Hono();
+  let server: ReturnType<typeof serve> | null = null;
 
   // Middleware
   app.use('*', logger());
   app.use('/api/*', cors());
 
   // Mount routes
-  const api = createApiRoutes(connector);
-  const sse = createSSERoutes(connector);
-  const pages = createPageRoutes(connector);
-
-  app.route('/api', api);
-  app.route('/api', sse);
-  app.route('/', pages);
-
-  return app;
-}
-
-export function createDashboardServerWithConnector(
-  connector: DashboardConnector,
-  config: Partial<DashboardConfig> = {}
-): DashboardServer {
-  const fullConfig = normalizeConfig(config);
-  const app = createDashboardApp(connector);
-  let server: ReturnType<typeof serve> | null = null;
+  app.route('/api', createApiRoutes(connector));
+  app.route('/api', createSseRoutes(connector));
+  app.route('/', createPageRoutes(connector));
 
   return {
     app,
-    connector,
+    port,
     async start() {
-      server = serve({
-        fetch: app.fetch,
-        port: fullConfig.port,
-        hostname: fullConfig.host,
+      return new Promise((resolve) => {
+        server = serve(
+          {
+            fetch: app.fetch,
+            port,
+            hostname,
+          },
+          (info) => {
+            console.log(`\n🎭 LLM Orchestra Dashboard running at http://${hostname}:${info.port}\n`);
+            
+            if (options.open) {
+              import('open').then((m) => m.default(`http://${hostname}:${info.port}`));
+            }
+            
+            resolve();
+          }
+        );
       });
-
-      const url = `http://localhost:${fullConfig.port}`;
-      console.log(`🎼 LLM Orchestra Dashboard running at ${url}`);
-
-      if (fullConfig.open) {
-        const open = await import('open');
-        await open.default(url);
-      }
     },
-    stop() {
+    async stop() {
       if (server) {
         server.close();
         server = null;
       }
-      connector.shutdown?.();
-    },
-    getUrl() {
-      return `http://localhost:${fullConfig.port}`;
     },
   };
 }
 
-export function createDashboardServer(
-  orchestra: Orchestra,
-  config: Partial<DashboardConfig> = {}
-): DashboardServer {
-  const fullConfig = normalizeConfig(config);
+// Standalone server entry point
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // This is for testing without an Orchestra instance
+  const MockConnector: DashboardConnector = {
+    async getStats() {
+      return {
+        totalRequests: 0,
+        totalTokens: { input: 0, output: 0 },
+        totalCost: 0,
+        byProvider: {},
+        byModel: {},
+        uptime: Date.now() - performance.now(),
+        requestsPerMinute: 0,
+        activeProviders: [],
+      };
+    },
+    async getTraces() {
+      return [];
+    },
+    async getTrace() {
+      return undefined;
+    },
+    async getProviderHealth() {
+      return [];
+    },
+    async getRecentRequests() {
+      return [];
+    },
+    subscribe() {
+      return () => {};
+    },
+  };
 
-  const connector = new MemoryConnector(orchestra, {
-    traceBufferSize: fullConfig.traceBufferSize,
-    retentionMs: fullConfig.retentionMs,
-  });
-
-  return createDashboardServerWithConnector(connector, fullConfig);
-}
-
-/**
- * Attach a dashboard to an Orchestra instance
- * This is the main entry point for embedding the dashboard
- */
-export function attachDashboard(
-  orchestra: Orchestra,
-  config: Partial<DashboardConfig> = {}
-): DashboardServer {
-  const server = createDashboardServer(orchestra, config);
-  server.start().catch((error) => {
-    console.error('[Dashboard] Failed to start server:', error);
-  });
-  return server;
+  const server = createDashboardServer(MockConnector, { open: true });
+  server.start();
 }
