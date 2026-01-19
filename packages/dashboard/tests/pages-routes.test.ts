@@ -184,7 +184,8 @@ describe('Pages Routes', () => {
 
     it('should_callGetTracesWithLimit_when_rendered', async () => {
       await app.request('/traces');
-      expect(connector.getTraces).toHaveBeenCalledWith({ limit: 50 });
+      // Fetches more traces (100) to allow for client-side filtering
+      expect(connector.getTraces).toHaveBeenCalledWith({ limit: 100 });
     });
 
     it('should_showNoTracesMessage_when_empty', async () => {
@@ -197,7 +198,7 @@ describe('Pages Routes', () => {
       const res = await app.request('/traces');
       const html = await res.text();
 
-      expect(html).toContain('No traces yet');
+      expect(html).toContain('No traces found');
     });
 
     it('should_includeTraceStatus_when_rendered', async () => {
