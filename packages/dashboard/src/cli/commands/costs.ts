@@ -5,6 +5,7 @@
 
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import { apiFetch, handleApiError, type ApiOptions } from '../api.js';
 
 interface ProviderStats {
   requests: number;
@@ -25,14 +26,11 @@ interface CostsResponse {
   byModel: Partial<Record<string, ModelStats>>;
 }
 
-export async function costsCommand(serverUrl: string): Promise<void> {
+export async function costsCommand(options: ApiOptions): Promise<void> {
   try {
-    const response = await fetch(serverUrl + '/api/stats');
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-    }
-
-    const stats = (await response.json()) as CostsResponse;
+    const stats = await apiFetch<CostsResponse>(options, '/api/stats', {
+      projectId: options.projectId,
+    });
 
     console.log('\n' + chalk.bold.cyan('Cost Breakdown') + '\n');
     console.log(chalk.bold('Total Cost: ') + chalk.magenta('$' + stats.totalCost.toFixed(4)));
@@ -97,8 +95,6 @@ export async function costsCommand(serverUrl: string): Promise<void> {
 
     console.log('');
   } catch (error) {
-    console.error(chalk.red('Error fetching costs:'), (error as Error).message);
-    console.log(chalk.gray('Make sure the dashboard server is running at ' + serverUrl));
-    process.exit(1);
+    handleApiError(error, options.server);
   }
 }

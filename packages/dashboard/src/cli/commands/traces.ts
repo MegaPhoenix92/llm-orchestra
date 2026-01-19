@@ -5,6 +5,7 @@
 
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import { apiFetch, handleApiError, type ApiOptions } from '../api.js';
 
 interface TraceInfo {
   id: string;
@@ -18,14 +19,12 @@ interface TracesResponse {
   traces: TraceInfo[];
 }
 
-export async function tracesCommand(serverUrl: string, limit: number): Promise<void> {
+export async function tracesCommand(options: ApiOptions, limit: number): Promise<void> {
   try {
-    const response = await fetch(serverUrl + '/api/traces?limit=' + limit);
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-    }
-
-    const data = (await response.json()) as TracesResponse;
+    const data = await apiFetch<TracesResponse>(options, '/api/traces', {
+      limit,
+      projectId: options.projectId,
+    });
     const traces = data.traces || [];
 
     console.log('\n' + chalk.bold.cyan('Recent Traces') + '\n');
@@ -47,11 +46,12 @@ export async function tracesCommand(serverUrl: string, limit: number): Promise<v
     });
 
     for (const trace of traces) {
-      const status = trace.status === 'ok' 
-        ? chalk.green('ok') 
-        : trace.status === 'error' 
-          ? chalk.red('error')
-          : chalk.yellow(trace.status);
+      const status =
+        trace.status === 'ok'
+          ? chalk.green('ok')
+          : trace.status === 'error'
+            ? chalk.red('error')
+            : chalk.yellow(trace.status);
 
       table.push([
         chalk.gray(trace.id.substring(0, 16)),
@@ -65,8 +65,6 @@ export async function tracesCommand(serverUrl: string, limit: number): Promise<v
     console.log(table.toString());
     console.log('');
   } catch (error) {
-    console.error(chalk.red('Error fetching traces:'), (error as Error).message);
-    console.log(chalk.gray('Make sure the dashboard server is running at ' + serverUrl));
-    process.exit(1);
+    handleApiError(error, options.server);
   }
 }

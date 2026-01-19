@@ -7,6 +7,7 @@ import { statsCommand } from '../src/cli/commands/stats.js';
 import { healthCommand } from '../src/cli/commands/health.js';
 import { costsCommand } from '../src/cli/commands/costs.js';
 import { tracesCommand } from '../src/cli/commands/traces.js';
+import type { ApiOptions } from '../src/cli/api.js';
 
 // Mock fetch globally using vi.stubGlobal for proper cleanup
 const mockFetch = vi.fn();
@@ -17,6 +18,18 @@ const consoleErrors: string[] = [];
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalProcessExit = process.exit;
+
+// Default test options
+const defaultOptions: ApiOptions = {
+  server: 'http://localhost:3737',
+};
+
+// Cloud mode test options
+const cloudOptions: ApiOptions = {
+  server: 'https://cloud.example.com',
+  apiKey: 'orch_test_key_123',
+  projectId: 'prj_test123',
+};
 
 beforeEach(() => {
   consoleLogs.length = 0;
@@ -57,7 +70,7 @@ describe('statsCommand', () => {
       json: async () => mockStats,
     });
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('100');
@@ -74,7 +87,7 @@ describe('statsCommand', () => {
       json: async () => ({ ...mockStats, uptime: 7200000 }), // 2 hours
     });
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('2h');
@@ -86,7 +99,7 @@ describe('statsCommand', () => {
       json: async () => ({ ...mockStats, uptime: 90000000 }), // > 1 day
     });
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('d');
@@ -98,7 +111,7 @@ describe('statsCommand', () => {
       json: async () => ({ ...mockStats, activeProviders: [] }),
     });
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).not.toContain('Active Providers');
@@ -109,21 +122,40 @@ describe('statsCommand', () => {
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
+      json: async () => ({ error: 'Server error' }),
     });
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
-    expect(consoleErrors.join('\n')).toContain('Error fetching stats');
+    expect(consoleErrors.join('\n')).toContain('API Error');
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 
   it('should_displayError_when_networkFails', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    await statsCommand('http://localhost:3737');
+    await statsCommand(defaultOptions);
 
     expect(consoleErrors.join('\n')).toContain('Network error');
     expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('should_passProjectId_when_cloudMode', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockStats,
+    });
+
+    await statsCommand(cloudOptions);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('projectId=prj_test123'),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer orch_test_key_123',
+        }),
+      })
+    );
   });
 });
 
@@ -141,7 +173,7 @@ describe('healthCommand', () => {
       json: async () => mockHealth,
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('anthropic');
@@ -157,7 +189,7 @@ describe('healthCommand', () => {
       }),
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('Available');
@@ -171,7 +203,7 @@ describe('healthCommand', () => {
       }),
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('Unavailable');
@@ -185,7 +217,7 @@ describe('healthCommand', () => {
       }),
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('-');
@@ -197,7 +229,7 @@ describe('healthCommand', () => {
       json: async () => ({ providers: [] }),
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('No providers configured');
@@ -208,11 +240,12 @@ describe('healthCommand', () => {
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
+      json: async () => ({ error: 'Server error' }),
     });
 
-    await healthCommand('http://localhost:3737');
+    await healthCommand(defaultOptions);
 
-    expect(consoleErrors.join('\n')).toContain('Error fetching health');
+    expect(consoleErrors.join('\n')).toContain('API Error');
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 });
@@ -254,7 +287,7 @@ describe('costsCommand', () => {
       json: async () => mockCosts,
     });
 
-    await costsCommand('http://localhost:3737');
+    await costsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('$15.5000');
@@ -270,7 +303,7 @@ describe('costsCommand', () => {
       json: async () => mockCosts,
     });
 
-    await costsCommand('http://localhost:3737');
+    await costsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('By Provider');
@@ -284,7 +317,7 @@ describe('costsCommand', () => {
       json: async () => mockCosts,
     });
 
-    await costsCommand('http://localhost:3737');
+    await costsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('By Model');
@@ -301,7 +334,7 @@ describe('costsCommand', () => {
       }),
     });
 
-    await costsCommand('http://localhost:3737');
+    await costsCommand(defaultOptions);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('$0.0000');
@@ -314,11 +347,12 @@ describe('costsCommand', () => {
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
+      json: async () => ({ error: 'Server error' }),
     });
 
-    await costsCommand('http://localhost:3737');
+    await costsCommand(defaultOptions);
 
-    expect(consoleErrors.join('\n')).toContain('Error fetching costs');
+    expect(consoleErrors.join('\n')).toContain('API Error');
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 });
@@ -355,7 +389,7 @@ describe('tracesCommand', () => {
       json: async () => mockTraces,
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('chat-completion');
@@ -369,7 +403,7 @@ describe('tracesCommand', () => {
       json: async () => mockTraces,
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('1500ms');
@@ -384,7 +418,7 @@ describe('tracesCommand', () => {
       }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('-');
@@ -396,9 +430,12 @@ describe('tracesCommand', () => {
       json: async () => ({ traces: [] }),
     });
 
-    await tracesCommand('http://localhost:3737', 5);
+    await tracesCommand(defaultOptions, 5);
 
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:3737/api/traces?limit=5');
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('limit=5'),
+      expect.any(Object)
+    );
   });
 
   it('should_displayMessage_when_noTraces', async () => {
@@ -407,7 +444,7 @@ describe('tracesCommand', () => {
       json: async () => ({ traces: [] }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('No traces found');
@@ -428,7 +465,7 @@ describe('tracesCommand', () => {
       }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     // ID should be truncated to 16 chars
@@ -441,11 +478,12 @@ describe('tracesCommand', () => {
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
+      json: async () => ({ error: 'Server error' }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
-    expect(consoleErrors.join('\n')).toContain('Error fetching traces');
+    expect(consoleErrors.join('\n')).toContain('API Error');
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 
@@ -457,7 +495,7 @@ describe('tracesCommand', () => {
       }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     // Output will contain ANSI color codes for green
     const output = consoleLogs.join('\n');
@@ -472,9 +510,41 @@ describe('tracesCommand', () => {
       }),
     });
 
-    await tracesCommand('http://localhost:3737', 20);
+    await tracesCommand(defaultOptions, 20);
 
     const output = consoleLogs.join('\n');
     expect(output).toContain('error');
+  });
+
+  it('should_includeAuthHeader_when_apiKeyProvided', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ traces: [] }),
+    });
+
+    await tracesCommand(cloudOptions, 20);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer orch_test_key_123',
+        }),
+      })
+    );
+  });
+
+  it('should_includeProjectId_when_cloudMode', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ traces: [] }),
+    });
+
+    await tracesCommand(cloudOptions, 20);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('projectId=prj_test123'),
+      expect.any(Object)
+    );
   });
 });
