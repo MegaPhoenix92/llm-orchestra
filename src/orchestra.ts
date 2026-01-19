@@ -23,12 +23,12 @@ export interface OrchestraStats {
   totalRequests: number;
   totalTokens: { input: number; output: number };
   totalCost: number;
-  byProvider: Record<ProviderName, {
+  byProvider: Partial<Record<ProviderName, {
     requests: number;
     tokens: { input: number; output: number };
     cost: number;
     avgLatencyMs: number;
-  }>;
+  }>>;
   byModel: Record<string, {
     requests: number;
     tokens: { input: number; output: number };

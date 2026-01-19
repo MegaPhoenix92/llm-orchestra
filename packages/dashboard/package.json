@@ -2,48 +2,40 @@
   "name": "@llm-orchestra/dashboard",
   "version": "0.1.0",
   "description": "Local observability dashboard for LLM Orchestra",
-  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "bin": {
     "orchestra-dashboard": "./bin/orchestra-dashboard.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/server/standalone.ts",
-    "start": "node dist/server/standalone.js",
+    "dev": "tsx watch src/server/app.ts",
     "cli": "tsx src/cli/index.ts",
-    "typecheck": "tsc --noEmit"
+    "start": "node dist/server/app.js"
   },
   "keywords": [
-    "llm",
+    "llm-orchestra",
     "dashboard",
     "observability",
-    "tracing",
-    "orchestra"
+    "tracing"
   ],
   "author": "TROZLAN <info@trozlan.io>",
   "license": "MIT",
   "dependencies": {
-    "@hono/node-server": "^1.11.0",
-    "hono": "^4.4.0",
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.8.0",
     "commander": "^12.0.0",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.3",
-    "open": "^10.1.0"
+    "open": "^10.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "llm-orchestra": "file:../..",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "llm-orchestra": "*"
-  },
-  "peerDependenciesMeta": {
-    "llm-orchestra": {
-      "optional": true
-    }
+    "llm-orchestra": "^0.1.0"
   }
 }

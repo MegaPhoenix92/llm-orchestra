@@ -1,7 +1,3 @@
-/**
- * Dashboard connectors
- */
-
 export * from './types.js';
-export * from './memory.js';
-export * from './mock.js';
+export { MemoryConnector } from './memory.js';
+export type { MemoryConnectorOptions } from './memory.js';
