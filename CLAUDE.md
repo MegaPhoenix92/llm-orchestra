@@ -141,32 +141,83 @@ npx tsc --noEmit
 ### PR Review Workflow
 
 ```bash
-# Create feature branch
+# 1. Create feature branch
 git checkout -b feat/your-feature-name
 
-# Make changes, commit
+# 2. Make changes, run tests to verify
+npm test
+
+# 3. Commit with co-author
 git add .
-git commit -m "feat: your feature description
+git commit -m "$(cat <<'EOF'
+feat: your feature description
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+Detailed description of changes.
 
-# Push and create PR
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+EOF
+)"
+
+# 4. Push and create PR
 git push -u origin feat/your-feature-name
-gh pr create --title "feat: your feature" --body "## Summary
-- Description
+gh pr create --title "feat: your feature" --body "$(cat <<'EOF'
+## Summary
+- Description of changes
 
 ## Test plan
-- [ ] Tests pass
+- [x] All tests pass
+- [x] Manual verification done
 
-🤖 Generated with Claude"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 
-# Request reviews
+# 5. Request reviews from @codex and Copilot
 PR_NUM=$(gh pr view --json number -q '.number')
-gh pr comment $PR_NUM --body "@codex please review this PR"
+gh pr comment $PR_NUM --body "@codex please review this PR for code quality, security, and best practices."
+gh api repos/{owner}/{repo}/pulls/$PR_NUM/requested_reviewers -f "reviewers[]=copilot"
 
-# After approval
+# 6. Wait for reviews and check status
+gh api repos/{owner}/{repo}/pulls/$PR_NUM/reviews --jq '.[] | {user: .user.login, state: .state}'
+gh api repos/{owner}/{repo}/pulls/$PR_NUM/comments --jq '.[].body'
+
+# 7. After approval, merge
 gh pr merge --squash --delete-branch
 ```
+
+### @codex Review Responses
+
+| Response | Meaning | Action |
+|----------|---------|--------|
+| "Didn't find any major issues. Nice work!" | No issues found | Proceed to merge |
+| P1 Badge (Red) | Critical issue | Must fix before merge |
+| P2 Badge (Yellow) | Important issue | Should fix before merge |
+| P3 Badge (Blue) | Minor suggestion | Nice to fix |
+
+### Handling @codex Feedback
+
+When @codex finds issues:
+
+```bash
+# Option 1: Ask @codex to fix (requires Codex account setup)
+gh pr comment $PR_NUM --body "@codex address that feedback"
+
+# Option 2: Fix manually, commit, and push
+git add .
+git commit -m "fix: address @codex feedback
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push
+```
+
+### Review Checklist Before Creating PR
+
+- [ ] All tests pass locally (`npm test`)
+- [ ] No TypeScript/ESLint errors
+- [ ] Code follows project conventions
+- [ ] No sensitive data committed
+- [ ] Commit messages follow conventional commits format
+- [ ] PR description includes summary and test plan
 
 ## Integration with TROZLAN
 
