@@ -34,7 +34,7 @@ We take security seriously. If you discover a security vulnerability, please rep
 
 The following are in scope:
 - `llm-orchestra` npm package
-- `@llm-orchestra/dashboard` npm package
+- `llm-orchestra-dashboard` npm package
 - API key handling and storage
 - Data transmission security
 - Dependency vulnerabilities

@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Request caching with semantic similarity matching
   - Tool/function calling support across providers
 
-- **Dashboard Package** (`@llm-orchestra/dashboard`)
+- **Dashboard Package** (`llm-orchestra-dashboard`)
   - Local observability dashboard with web UI
   - Real-time request feed via Server-Sent Events
   - Trace viewer with span hierarchy visualization

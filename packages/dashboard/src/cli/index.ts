@@ -62,7 +62,7 @@ program
     console.log(chalk.gray('Use attachDashboard() in your application code instead.\n'));
     console.log(chalk.cyan('Example:'));
     console.log(chalk.gray('  import { Orchestra } from "llm-orchestra";'));
-    console.log(chalk.gray('  import { attachDashboard } from "@llm-orchestra/dashboard";'));
+    console.log(chalk.gray('  import { attachDashboard } from "llm-orchestra-dashboard";'));
     console.log(chalk.gray(''));
     console.log(chalk.gray('  const orchestra = new Orchestra({ providers: { ... } });'));
     console.log(chalk.gray('  const dashboard = await attachDashboard(orchestra, { port: ' + options.port + ', open: ' + !!options.open + ' });'));

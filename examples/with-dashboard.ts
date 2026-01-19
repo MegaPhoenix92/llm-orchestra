@@ -10,7 +10,7 @@
  */
 
 import { Orchestra } from 'llm-orchestra';
-import { attachDashboard } from '@llm-orchestra/dashboard';
+import { attachDashboard } from 'llm-orchestra-dashboard';
 
 async function main() {
   // Initialize Orchestra

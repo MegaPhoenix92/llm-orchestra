@@ -1,4 +1,4 @@
-# @llm-orchestra/dashboard
+# llm-orchestra-dashboard
 
 Local observability dashboard for LLM Orchestra - monitor your multi-model AI applications in real-time.
 
@@ -14,7 +14,7 @@ Local observability dashboard for LLM Orchestra - monitor your multi-model AI ap
 ## Installation
 
 ```bash
-npm install @llm-orchestra/dashboard
+npm install llm-orchestra-dashboard
 ```
 
 ## Quick Start
@@ -25,7 +25,7 @@ Attach the dashboard to your running Orchestra instance:
 
 ```typescript
 import { Orchestra } from 'llm-orchestra';
-import { attachDashboard } from '@llm-orchestra/dashboard';
+import { attachDashboard } from 'llm-orchestra-dashboard';
 
 const orchestra = new Orchestra({
   anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },

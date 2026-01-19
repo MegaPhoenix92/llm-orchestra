@@ -38,6 +38,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish dashboard package
-        run: npm publish --provenance --access public -w @llm-orchestra/dashboard
+        run: npm publish --provenance --access public -w llm-orchestra-dashboard
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

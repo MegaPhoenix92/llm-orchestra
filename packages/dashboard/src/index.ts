@@ -39,7 +39,7 @@ export interface AttachedDashboard {
  * @example
  * ```ts
  * import { Orchestra } from 'llm-orchestra';
- * import { attachDashboard } from '@llm-orchestra/dashboard';
+ * import { attachDashboard } from 'llm-orchestra-dashboard';
  * 
  * const orchestra = new Orchestra({ providers: { ... } });
  * const dashboard = await attachDashboard(orchestra, { port: 3737, open: true });

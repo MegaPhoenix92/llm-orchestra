@@ -1,5 +1,5 @@
 {
-  "name": "@llm-orchestra/dashboard",
+  "name": "llm-orchestra-dashboard",
   "version": "0.1.0",
   "description": "Local observability dashboard for LLM Orchestra",
   "main": "dist/index.js",
