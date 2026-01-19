@@ -51,6 +51,10 @@ const response = await orchestra.complete({
 // Dashboard shows real-time stats and traces
 ```
 
+### Cloud Deployment
+
+See `docs/cloud-dashboard.md` for full setup steps and API examples.
+
 ### CLI Commands
 
 ```bash
