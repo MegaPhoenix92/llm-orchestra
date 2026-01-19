@@ -8,12 +8,14 @@ export { AnthropicProvider } from './anthropic.js';
 export { OpenAIProvider } from './openai.js';
 export { GoogleProvider } from './google.js';
 export { MistralProvider } from './mistral.js';
+export { CohereProvider } from './cohere.js';
 
 import type { ProviderAdapter, ProviderName, ProvidersConfig } from '../types/index.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAIProvider } from './openai.js';
 import { GoogleProvider } from './google.js';
 import { MistralProvider } from './mistral.js';
+import { CohereProvider } from './cohere.js';
 
 /**
  * Model to provider mapping
@@ -53,6 +55,12 @@ const MODEL_PROVIDER_MAP: Record<string, ProviderName> = {
   'mistral-medium': 'mistral',
   'mistral-small': 'mistral',
   'mistral-small-latest': 'mistral',
+
+  // Cohere models
+  'command': 'cohere',
+  'command-light': 'cohere',
+  'command-r': 'cohere',
+  'command-r-plus': 'cohere',
 };
 
 /**
@@ -75,6 +83,10 @@ export function createProviders(config: ProvidersConfig): Map<ProviderName, Prov
 
   if (config.mistral?.apiKey) {
     providers.set('mistral', new MistralProvider(config.mistral));
+  }
+
+  if (config.cohere?.apiKey) {
+    providers.set('cohere', new CohereProvider(config.cohere));
   }
 
   return providers;
