@@ -10,6 +10,8 @@ import crypto from 'crypto';
 import type { Database } from '../../db/index.js';
 import { users, organizations, orgMembers, sessions } from '../../db/schema.js';
 import { hashPassword, verifyPassword, generateTokenPair, verifyToken } from '../../auth/index.js';
+import { generateSlug } from '../../utils/slug.js';
+import { createRateLimiter } from '../../utils/rate-limit.js';
 
 export interface AuthRoutesOptions {
   db: Database;
@@ -21,14 +23,13 @@ const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_COOKIE_NAME = 'refresh_token';
 const REFRESH_COOKIE_MAX_AGE = Math.floor(REFRESH_TOKEN_EXPIRY_MS / 1000);
 
-interface RateLimitEntry {
-  count: number;
-  windowStart: number;
-}
-
-const authRateLimitStore = new Map<string, RateLimitEntry>();
+/** Rate limiter configuration for auth endpoints */
 const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_RATE_LIMIT_MAX_REQUESTS = 20;
+const authRateLimiter = createRateLimiter({
+  windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+  maxRequests: AUTH_RATE_LIMIT_MAX_REQUESTS,
+});
 
 /**
  * Email validation regex pattern
@@ -112,62 +113,6 @@ function getClientIdentifier(c: Context, email?: string): string {
   return email ? `${ip}:${email.toLowerCase()}` : ip;
 }
 
-function checkAuthRateLimit(key: string): {
-  allowed: boolean;
-  remaining: number;
-  retryAfter: number;
-} {
-  const now = Date.now();
-  const entry = authRateLimitStore.get(key);
-
-  if (!entry || now - entry.windowStart > AUTH_RATE_LIMIT_WINDOW_MS) {
-    authRateLimitStore.set(key, { count: 1, windowStart: now });
-    return {
-      allowed: true,
-      remaining: AUTH_RATE_LIMIT_MAX_REQUESTS - 1,
-      retryAfter: 0,
-    };
-  }
-
-  if (entry.count >= AUTH_RATE_LIMIT_MAX_REQUESTS) {
-    const retryAfter = Math.ceil(
-      (AUTH_RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 1000
-    );
-    return { allowed: false, remaining: 0, retryAfter };
-  }
-
-  entry.count += 1;
-  return {
-    allowed: true,
-    remaining: Math.max(0, AUTH_RATE_LIMIT_MAX_REQUESTS - entry.count),
-    retryAfter: 0,
-  };
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of authRateLimitStore.entries()) {
-    if (now - entry.windowStart > AUTH_RATE_LIMIT_WINDOW_MS * 2) {
-      authRateLimitStore.delete(key);
-    }
-  }
-}, AUTH_RATE_LIMIT_WINDOW_MS);
-
-/**
- * Generate a URL-safe slug from a string
- * @param text - The text to convert to a slug
- * @returns URL-safe lowercase slug with hyphens
- */
-function generateSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .substring(0, 50);
-}
-
 /**
  * Hash a refresh token for secure storage
  * @param token - The refresh token to hash
@@ -223,12 +168,15 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
   auth.post('/register', async (c) => {
     try {
       const body = await c.req.json();
-      const { email, password, name, orgName } = body;
+      const { password, name, orgName } = body;
+      // Normalize email to lowercase early
+      const email = body.email?.toLowerCase();
 
       const rateKey = `register:${getClientIdentifier(c, email)}`;
-      const rate = checkAuthRateLimit(rateKey);
+      const rate = authRateLimiter.check(rateKey);
       if (!rate.allowed) {
-        c.header('Retry-After', String(rate.retryAfter));
+        const retryAfter = Math.ceil((rate.resetAt - Date.now()) / 1000);
+        c.header('Retry-After', String(retryAfter));
         return c.json(
           {
             error: 'Too many requests',
@@ -366,12 +314,15 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
   auth.post('/login', async (c) => {
     try {
       const body = await c.req.json();
-      const { email, password } = body;
+      const { password } = body;
+      // Normalize email to lowercase early
+      const email = body.email?.toLowerCase();
 
       const rateKey = `login:${getClientIdentifier(c, email)}`;
-      const rate = checkAuthRateLimit(rateKey);
+      const rate = authRateLimiter.check(rateKey);
       if (!rate.allowed) {
-        c.header('Retry-After', String(rate.retryAfter));
+        const retryAfter = Math.ceil((rate.resetAt - Date.now()) / 1000);
+        c.header('Retry-After', String(retryAfter));
         return c.json(
           {
             error: 'Too many requests',

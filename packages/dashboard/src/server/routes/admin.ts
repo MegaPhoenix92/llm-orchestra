@@ -18,6 +18,7 @@ import {
 } from '../../db/schema.js';
 import { generateApiKey } from '../../auth/index.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
+import { generateSlug } from '../../utils/slug.js';
 
 export interface AdminRoutesOptions {
   db: Database;
@@ -32,21 +33,6 @@ const MANAGER_ROLES: Role[] = ['owner', 'admin'];
 
 /** Roles that can manage API keys */
 const KEY_MANAGER_ROLES: Role[] = ['owner', 'admin', 'member'];
-
-/**
- * Generate a URL-safe slug from a string
- * @param text - The text to convert to a slug
- * @returns URL-safe lowercase slug with hyphens
- */
-function generateSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .substring(0, 50);
-}
 
 /**
  * Check if a user has a specific role or higher in an organization

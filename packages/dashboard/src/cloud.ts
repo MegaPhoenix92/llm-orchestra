@@ -313,12 +313,6 @@ function getDashboardHomeHtml(): string {
     var headers = null;
     var refreshInFlight = null;
 
-    function safeText(text) {
-      var div = document.createElement('div');
-      div.textContent = text;
-      return div.textContent;
-    }
-
     function buildHeaders() {
       return { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' };
     }
