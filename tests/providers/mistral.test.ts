@@ -29,6 +29,21 @@ describe('MistralProvider', () => {
     it('should_setProviderName_when_initialized', () => {
       expect(provider.name).toBe('mistral');
     });
+
+    it('should_useDefaultBaseUrl_when_notProvided', async () => {
+      const p = new MistralProvider({ apiKey: 'test' });
+      const fetchSpy = vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+      } as Response);
+
+      await p.complete(createMockRequest({ model: 'mistral-large' }));
+      const url = fetchSpy.mock.calls[0][0] as string;
+      expect(url).toContain('https://api.mistral.ai/v1');
+    });
   });
 
   describe('complete', () => {
@@ -135,6 +150,69 @@ describe('MistralProvider', () => {
         content: '{"result": "done"}',
       });
     });
+
+    it('should_handleLengthFinishReason_when_maxTokensReached', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Truncated...' }, finish_reason: 'length' }],
+          usage: { prompt_tokens: 5, completion_tokens: 100, total_tokens: 105 },
+        }),
+      } as Response);
+
+      const response = await provider.complete(createMockRequest({ model: 'mistral-large' }));
+      expect(response.finishReason).toBe('length');
+    });
+
+    it('should_handleContentFilterFinishReason_when_contentFiltered', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '' }, finish_reason: 'content_filter' }],
+          usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
+        }),
+      } as Response);
+
+      const response = await provider.complete(createMockRequest({ model: 'mistral-large' }));
+      expect(response.finishReason).toBe('content_filter');
+    });
+
+    it('should_throwError_when_apiFails', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Unauthorized',
+      } as Response);
+
+      await expect(provider.complete(createMockRequest({ model: 'mistral-large' }))).rejects.toThrow(
+        'Mistral API error: 401 Unauthorized'
+      );
+    });
+
+    it('should_handleNullContent_when_messageContentIsNull', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: null }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
+        }),
+      } as Response);
+
+      const response = await provider.complete(createMockRequest({ model: 'mistral-large' }));
+      expect(response.content).toBe('');
+    });
+
+    it('should_handleMissingUsage_when_usageNotReturned', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
+        }),
+      } as Response);
+
+      const response = await provider.complete(createMockRequest({ model: 'mistral-large' }));
+      expect(response.meta.tokens.totalTokens).toBe(0);
+    });
   });
 
   describe('stream', () => {
@@ -174,6 +252,56 @@ describe('MistralProvider', () => {
       expect(chunks[chunks.length - 1].finishReason).toBe('stop');
       expect(chunks[chunks.length - 1].meta?.tokens?.totalTokens).toBe(5);
     });
+
+    it('should_throwError_when_streamBodyMissing', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        body: null,
+      } as Response);
+
+      const stream = provider.stream(createMockRequest({ model: 'mistral-large' }));
+      await expect(collectStream(stream)).rejects.toThrow('Mistral streaming response missing body.');
+    });
+
+    it('should_throwError_when_streamApiFails', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error',
+      } as Response);
+
+      const stream = provider.stream(createMockRequest({ model: 'mistral-large' }));
+      await expect(collectStream(stream)).rejects.toThrow('Mistral API error: 500 Internal Server Error');
+    });
+
+    it('should_streamToolCalls_when_present', async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\\"loc\\""}}]}}]}\n\n'
+            )
+          );
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":10,"total_tokens":15}}\n\n'
+            )
+          );
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        body: stream,
+      } as Response);
+
+      const chunks = await collectStream(provider.stream(createMockRequest({ model: 'mistral-large', tools: createMockTools() })));
+      const toolChunk = chunks.find(c => c.toolCalls);
+      expect(toolChunk?.toolCalls?.[0].id).toBe('call_1');
+    });
   });
 
   describe('listModels', () => {
@@ -188,6 +316,47 @@ describe('MistralProvider', () => {
       const models = await provider.listModels();
       expect(models).toContain('mistral-large');
       expect(models).toContain('mistral-small');
+    });
+
+    it('should_returnEmptyArray_when_noModels', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
+
+      const models = await provider.listModels();
+      expect(models).toEqual([]);
+      expect(models.length).toBe(0);
+    });
+
+    it('should_throwError_when_listModelsFails', async () => {
+      vi.spyOn(global, 'fetch' as any).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'Forbidden',
+      } as Response);
+
+      await expect(provider.listModels()).rejects.toThrow('Mistral API error: 403 Forbidden');
+    });
+  });
+
+  describe('getModelCost', () => {
+    it('should_returnCost_when_knownModel', () => {
+      const cost = provider.getModelCost('mistral-large');
+      expect(cost.inputPer1k).toBe(0);
+      expect(cost.outputPer1k).toBe(0);
+    });
+
+    it('should_returnCost_when_modelContainsKnownKey', () => {
+      const cost = provider.getModelCost('mistral-large-2024');
+      expect(cost.inputPer1k).toBe(0);
+      expect(cost.outputPer1k).toBe(0);
+    });
+
+    it('should_returnZeroCost_when_unknownModel', () => {
+      const cost = provider.getModelCost('unknown-model');
+      expect(cost.inputPer1k).toBe(0);
+      expect(cost.outputPer1k).toBe(0);
     });
   });
 });
