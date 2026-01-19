@@ -1,0 +1,270 @@
+/**
+ * Database Schema for LLM Orchestra Dashboard
+ * Drizzle ORM schema definitions for multi-tenancy and observability
+ */
+
+import {
+  pgTable,
+  text,
+  timestamp,
+  jsonb,
+  integer,
+  numeric,
+  unique,
+} from 'drizzle-orm/pg-core';
+import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
+
+// ============================================================================
+// Multi-Tenancy Tables
+// ============================================================================
+
+/**
+ * Organizations - Top-level tenant
+ */
+export const organizations = pgTable('organizations', {
+  id: text('id').primaryKey(), // prefix 'org_'
+  name: text('name').notNull(),
+  slug: text('slug').unique().notNull(),
+  plan: text('plan').default('free'),
+  settings: jsonb('settings'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type Organization = InferSelectModel<typeof organizations>;
+export type NewOrganization = InferInsertModel<typeof organizations>;
+
+/**
+ * Projects - Scoped within organization
+ */
+export const projects = pgTable(
+  'projects',
+  {
+    id: text('id').primaryKey(), // prefix 'proj_'
+    orgId: text('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    orgSlugUnique: unique('projects_org_slug_unique').on(table.orgId, table.slug),
+  })
+);
+
+export type Project = InferSelectModel<typeof projects>;
+export type NewProject = InferInsertModel<typeof projects>;
+
+/**
+ * Users - Web dashboard users
+ */
+export const users = pgTable('users', {
+  id: text('id').primaryKey(), // prefix 'usr_'
+  email: text('email').unique().notNull(),
+  passwordHash: text('password_hash').notNull(),
+  name: text('name'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type User = InferSelectModel<typeof users>;
+export type NewUser = InferInsertModel<typeof users>;
+
+/**
+ * Organization Members - User-org relationship
+ */
+export const orgMembers = pgTable(
+  'org_members',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    orgUserUnique: unique('org_members_org_user_unique').on(table.orgId, table.userId),
+  })
+);
+
+export type OrgMember = InferSelectModel<typeof orgMembers>;
+export type NewOrgMember = InferInsertModel<typeof orgMembers>;
+
+/**
+ * API Keys - SDK authentication
+ */
+export const apiKeys = pgTable('api_keys', {
+  id: text('id').primaryKey(), // prefix 'key_'
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  hashedKey: text('hashed_key').notNull(),
+  prefix: text('prefix').notNull(), // for lookup (e.g., 'orch_abc')
+  scopes: text('scopes').array().default(['ingest']),
+  lastUsedAt: timestamp('last_used_at'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type ApiKey = InferSelectModel<typeof apiKeys>;
+export type NewApiKey = InferInsertModel<typeof apiKeys>;
+
+/**
+ * Sessions - JWT refresh tokens
+ */
+export const sessions = pgTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  hashedToken: text('hashed_token').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type Session = InferSelectModel<typeof sessions>;
+export type NewSession = InferInsertModel<typeof sessions>;
+
+/**
+ * Invitations - Team invites
+ */
+export const invitations = pgTable('invitations', {
+  id: text('id').primaryKey(),
+  orgId: text('org_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] }).default('member'),
+  token: text('token').unique().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type Invitation = InferSelectModel<typeof invitations>;
+export type NewInvitation = InferInsertModel<typeof invitations>;
+
+// ============================================================================
+// Observability Tables
+// ============================================================================
+
+/**
+ * Traces - Root spans with aggregated metrics
+ */
+export const traces = pgTable('traces', {
+  traceId: text('trace_id').primaryKey(),
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name'),
+  status: text('status', { enum: ['ok', 'error', 'unset'] }),
+  startTime: timestamp('start_time').notNull(),
+  endTime: timestamp('end_time'),
+  duration: integer('duration'), // in milliseconds
+  totalCost: numeric('total_cost', { precision: 10, scale: 6 }),
+  totalTokensIn: integer('total_tokens_in'),
+  totalTokensOut: integer('total_tokens_out'),
+  provider: text('provider'),
+  model: text('model'),
+  attributes: jsonb('attributes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type Trace = InferSelectModel<typeof traces>;
+export type NewTrace = InferInsertModel<typeof traces>;
+
+/**
+ * Spans - Individual operations
+ */
+export const spans = pgTable('spans', {
+  spanId: text('span_id').primaryKey(),
+  traceId: text('trace_id')
+    .notNull()
+    .references(() => traces.traceId, { onDelete: 'cascade' }),
+  parentId: text('parent_id'),
+  name: text('name').notNull(),
+  startTime: timestamp('start_time').notNull(),
+  endTime: timestamp('end_time'),
+  duration: integer('duration'),
+  status: text('status'),
+  attributes: jsonb('attributes'),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  cost: numeric('cost', { precision: 10, scale: 6 }),
+});
+
+export type Span = InferSelectModel<typeof spans>;
+export type NewSpan = InferInsertModel<typeof spans>;
+
+/**
+ * Span Events - Events within spans
+ */
+export const spanEvents = pgTable('span_events', {
+  id: text('id').primaryKey(),
+  spanId: text('span_id')
+    .notNull()
+    .references(() => spans.spanId, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  timestamp: timestamp('timestamp').notNull(),
+  attributes: jsonb('attributes'),
+});
+
+export type SpanEvent = InferSelectModel<typeof spanEvents>;
+export type NewSpanEvent = InferInsertModel<typeof spanEvents>;
+
+/**
+ * Stats Snapshots - Hourly aggregated stats
+ */
+export const statsSnapshots = pgTable(
+  'stats_snapshots',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    timestamp: timestamp('timestamp').notNull(),
+    totalRequests: integer('total_requests'),
+    totalTokensIn: integer('total_tokens_in'),
+    totalTokensOut: integer('total_tokens_out'),
+    totalCost: numeric('total_cost', { precision: 10, scale: 6 }),
+    averageLatency: integer('average_latency'),
+    errorCount: integer('error_count'),
+  },
+  (table) => ({
+    projectTimestampUnique: unique('stats_snapshots_project_timestamp_unique').on(
+      table.projectId,
+      table.timestamp
+    ),
+  })
+);
+
+export type StatsSnapshot = InferSelectModel<typeof statsSnapshots>;
+export type NewStatsSnapshot = InferInsertModel<typeof statsSnapshots>;
+
+// ============================================================================
+// Table Exports (for use in queries and migrations)
+// ============================================================================
+
+export const schema = {
+  // Multi-tenancy
+  organizations,
+  projects,
+  users,
+  orgMembers,
+  apiKeys,
+  sessions,
+  invitations,
+  // Observability
+  traces,
+  spans,
+  spanEvents,
+  statsSnapshots,
+};

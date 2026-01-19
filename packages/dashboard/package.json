@@ -35,7 +35,11 @@
     "start": "node dist/server/app.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "keywords": [
     "llm-orchestra",
@@ -66,14 +70,23 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.8.0",
+    "bcryptjs": "^2.4.3",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.3",
     "commander": "^14.0.2",
+    "drizzle-orm": "^0.29.0",
     "hono": "^4.0.0",
-    "open": "^10.0.0"
+    "jsonwebtoken": "^9.0.0",
+    "nanoid": "^5.0.0",
+    "open": "^10.0.0",
+    "pg": "^8.11.3"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.10.9",
+    "drizzle-kit": "^0.20.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   },

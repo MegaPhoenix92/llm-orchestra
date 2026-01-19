@@ -80,3 +80,7 @@ export type { DashboardConnector, DashboardStats, TraceInfo, ProviderHealth, Rec
 export { MemoryConnector } from './connectors/memory.js';
 export { createDashboardServer } from './server/app.js';
 export type { DashboardServerOptions, DashboardServer } from './server/app.js';
+
+// Cloud deployment exports
+export { createCloudDashboard } from './cloud.js';
+export type { CloudDashboard, CloudDashboardOptions } from './cloud.js';
