@@ -84,6 +84,7 @@ describe('MemoryConnector', () => {
     it('should_trackRequestsPerMinute_when_requestsRecorded', async () => {
       // Record some requests
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-1',
         provider: 'anthropic',
         model: 'claude-3-opus',
@@ -169,6 +170,7 @@ describe('MemoryConnector', () => {
 
     it('should_returnRequests_when_recorded', async () => {
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-1',
         provider: 'anthropic',
         model: 'claude-3-opus',
@@ -185,6 +187,7 @@ describe('MemoryConnector', () => {
 
     it('should_returnInReverseOrder_when_multipleRequests', async () => {
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-1',
         provider: 'anthropic',
         model: 'claude-3-opus',
@@ -194,6 +197,7 @@ describe('MemoryConnector', () => {
         status: 'ok',
       });
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-2',
         provider: 'openai',
         model: 'gpt-4',
@@ -211,6 +215,7 @@ describe('MemoryConnector', () => {
     it('should_respectLimit_when_provided', async () => {
       for (let i = 0; i < 10; i++) {
         connector.recordRequest({
+          timestamp: Date.now(),
           traceId: `test-${i}`,
           provider: 'anthropic',
           model: 'claude-3-opus',
@@ -232,6 +237,7 @@ describe('MemoryConnector', () => {
       connector.subscribe(callback);
 
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-1',
         provider: 'anthropic',
         model: 'claude-3-opus',
@@ -254,6 +260,7 @@ describe('MemoryConnector', () => {
       unsubscribe();
 
       connector.recordRequest({
+        timestamp: Date.now(),
         traceId: 'test-1',
         provider: 'anthropic',
         model: 'claude-3-opus',
@@ -275,6 +282,7 @@ describe('MemoryConnector', () => {
 
       for (let i = 0; i < 10; i++) {
         connector.recordRequest({
+          timestamp: Date.now(),
           traceId: `test-${i}`,
           provider: 'anthropic',
           model: 'claude-3-opus',
