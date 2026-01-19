@@ -3,7 +3,7 @@
  * Tests for the main Orchestra class with cost tracking and statistics
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { OrchestraConfig, CompletionResponse, ProviderName } from '../src/types/index.js';
 
 // We test the Orchestra class through its public interface
@@ -223,6 +223,24 @@ describe('Orchestra', () => {
 
       await orchestra.shutdown();
     });
+
+    it('should_returnModels_when_providerConfigured', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {
+          anthropic: { apiKey: 'test-key' },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+
+      // listModels calls the provider's listModels which returns available models
+      const models = await orchestra.listModels('anthropic');
+      expect(Array.isArray(models)).toBe(true);
+
+      await orchestra.shutdown();
+    });
   });
 
   describe('getModelCost', () => {
@@ -237,6 +255,43 @@ describe('Orchestra', () => {
 
       const cost = orchestra.getModelCost('unknown-model');
       expect(cost).toBeUndefined();
+
+      await orchestra.shutdown();
+    });
+
+    it('should_returnUndefined_when_modelProviderNotInConfig', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {
+          openai: { apiKey: 'test-key' },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+
+      // claude-3-sonnet is anthropic, but anthropic is not configured
+      const cost = orchestra.getModelCost('claude-3-sonnet');
+      expect(cost).toBeUndefined();
+
+      await orchestra.shutdown();
+    });
+
+    it('should_returnPricing_when_modelProviderConfigured', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {
+          anthropic: { apiKey: 'test-key' },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+
+      const cost = orchestra.getModelCost('claude-3-sonnet-20240229');
+      expect(cost).toBeDefined();
+      expect(cost).toHaveProperty('inputPer1k');
+      expect(cost).toHaveProperty('outputPer1k');
 
       await orchestra.shutdown();
     });
@@ -349,6 +404,120 @@ describe('Orchestra', () => {
       const orchestra = new Orchestra(config);
       expect(orchestra).toBeDefined();
 
+      await orchestra.shutdown();
+    });
+  });
+
+  describe('checkCostAlerts (private method)', () => {
+    it('should_doNothing_when_costTrackingDisabled', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const config: OrchestraConfig = {
+        providers: {},
+        // No cost tracking config
+      };
+
+      const orchestra = new Orchestra(config);
+      (orchestra as any).checkCostAlerts(100);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+      await orchestra.shutdown();
+    });
+
+    it('should_logWarning_when_alertThresholdExceeded', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const config: OrchestraConfig = {
+        providers: {},
+        observability: {
+          costTracking: {
+            enabled: true,
+            alertThreshold: 5,
+          },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+      // Manually set totalCost to exceed threshold
+      (orchestra as any).stats.totalCost = 10;
+
+      (orchestra as any).checkCostAlerts(1);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Cost alert')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('exceeds threshold')
+      );
+
+      warnSpy.mockRestore();
+      await orchestra.shutdown();
+    });
+
+    it('should_logError_when_budgetLimitExceeded', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const config: OrchestraConfig = {
+        providers: {},
+        observability: {
+          costTracking: {
+            enabled: true,
+            budgetLimit: 50,
+          },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+      // Manually set totalCost to exceed budget
+      (orchestra as any).stats.totalCost = 100;
+
+      (orchestra as any).checkCostAlerts(1);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Budget exceeded')
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('exceeds limit')
+      );
+
+      errorSpy.mockRestore();
+      await orchestra.shutdown();
+    });
+
+    it('should_logBothAlerts_when_bothThresholdsExceeded', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const config: OrchestraConfig = {
+        providers: {},
+        observability: {
+          costTracking: {
+            enabled: true,
+            alertThreshold: 10,
+            budgetLimit: 50,
+          },
+        },
+      };
+
+      const orchestra = new Orchestra(config);
+      (orchestra as any).stats.totalCost = 100;
+
+      (orchestra as any).checkCostAlerts(1);
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
       await orchestra.shutdown();
     });
   });
