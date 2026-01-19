@@ -169,8 +169,9 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
     try {
       const body = await c.req.json();
       const { password, name, orgName } = body;
-      // Normalize email to lowercase early
-      const email = body.email?.toLowerCase();
+      // Normalize email to lowercase early (with type safety)
+      const rawEmail = body.email;
+      const email = typeof rawEmail === 'string' ? rawEmail.toLowerCase().trim() : undefined;
 
       const rateKey = `register:${getClientIdentifier(c, email)}`;
       const rate = authRateLimiter.check(rateKey);
@@ -315,8 +316,9 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
     try {
       const body = await c.req.json();
       const { password } = body;
-      // Normalize email to lowercase early
-      const email = body.email?.toLowerCase();
+      // Normalize email to lowercase early (with type safety)
+      const rawEmail = body.email;
+      const email = typeof rawEmail === 'string' ? rawEmail.toLowerCase().trim() : undefined;
 
       const rateKey = `login:${getClientIdentifier(c, email)}`;
       const rate = authRateLimiter.check(rateKey);
