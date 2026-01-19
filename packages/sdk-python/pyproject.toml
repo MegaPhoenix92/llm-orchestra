@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-orchestra"
+version = "0.1.0"
+description = "Unified Observability & Orchestration SDK for Multi-Model AI Applications"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "TROZLAN", email = "info@trozlan.io" }
+]
+keywords = ["llm", "ai", "orchestration", "observability"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License"
+]
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.30.0"]
+google = ["google-generativeai>=0.5.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_orchestra*"]
