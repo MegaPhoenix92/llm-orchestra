@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
  * LLM Orchestra Dashboard CLI
+ *
+ * Supports both local and cloud dashboard connections:
+ * - Local: Just specify --server (default: http://localhost:3737)
+ * - Cloud: Add --api-key and --project-id for authenticated access
  */
 
 import { Command } from 'commander';
@@ -9,6 +13,7 @@ import { statsCommand } from './commands/stats.js';
 import { tracesCommand } from './commands/traces.js';
 import { costsCommand } from './commands/costs.js';
 import { healthCommand } from './commands/health.js';
+import type { ApiOptions } from './api.js';
 
 const DEFAULT_SERVER_URL = 'http://localhost:3737';
 
@@ -19,45 +24,62 @@ program
   .description('CLI for LLM Orchestra Dashboard')
   .version('0.1.0');
 
+// Global options available to all commands
+program
+  .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
+  .option('-k, --api-key <key>', 'API key for cloud authentication')
+  .option('-p, --project-id <id>', 'Project ID for multi-tenant queries');
+
+/**
+ * Extract API options from command options
+ */
+function getApiOptions(options: Record<string, unknown>): ApiOptions {
+  return {
+    server: (options.server as string) || DEFAULT_SERVER_URL,
+    apiKey: options.apiKey as string | undefined,
+    projectId: options.projectId as string | undefined,
+  };
+}
+
 program
   .command('stats')
   .description('Show current statistics')
-  .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
-  .action(async (options) => {
-    await statsCommand(options.server);
+  .action(async () => {
+    const options = getApiOptions(program.opts());
+    await statsCommand(options);
   });
 
 program
   .command('traces')
   .description('List recent traces')
-  .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
   .option('-l, --limit <n>', 'Number of traces to show', '20')
-  .action(async (options) => {
-    await tracesCommand(options.server, parseInt(options.limit, 10));
+  .action(async (cmdOptions) => {
+    const options = getApiOptions(program.opts());
+    await tracesCommand(options, parseInt(cmdOptions.limit, 10));
   });
 
 program
   .command('costs')
   .description('Show cost breakdown by provider and model')
-  .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
-  .action(async (options) => {
-    await costsCommand(options.server);
+  .action(async () => {
+    const options = getApiOptions(program.opts());
+    await costsCommand(options);
   });
 
 program
   .command('health')
   .description('Show provider health status')
-  .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
-  .action(async (options) => {
-    await healthCommand(options.server);
+  .action(async () => {
+    const options = getApiOptions(program.opts());
+    await healthCommand(options);
   });
 
 program
   .command('serve')
   .description('Start the dashboard web server (requires Orchestra instance)')
-  .option('-p, --port <port>', 'Port to listen on', '3737')
+  .option('--port <port>', 'Port to listen on', '3737')
   .option('-o, --open', 'Open browser automatically')
-  .action(async (options) => {
+  .action(async (cmdOptions) => {
     console.log(chalk.yellow('\nNote: The serve command requires an Orchestra instance.'));
     console.log(chalk.gray('Use attachDashboard() in your application code instead.\n'));
     console.log(chalk.cyan('Example:'));
@@ -65,8 +87,44 @@ program
     console.log(chalk.gray('  import { attachDashboard } from "llm-orchestra-dashboard";'));
     console.log(chalk.gray(''));
     console.log(chalk.gray('  const orchestra = new Orchestra({ providers: { ... } });'));
-    console.log(chalk.gray('  const dashboard = await attachDashboard(orchestra, { port: ' + options.port + ', open: ' + !!options.open + ' });'));
+    console.log(
+      chalk.gray(
+        '  const dashboard = await attachDashboard(orchestra, { port: ' +
+          cmdOptions.port +
+          ', open: ' +
+          !!cmdOptions.open +
+          ' });'
+      )
+    );
     console.log('');
   });
+
+// Help text for cloud usage
+program.addHelpText(
+  'after',
+  `
+${chalk.bold('Cloud Usage:')}
+  Connect to a cloud dashboard with authentication:
+
+  $ orchestra-dashboard stats -s https://cloud.example.com -k orch_xxx -p prj_xxx
+  $ orchestra-dashboard traces -s https://cloud.example.com -k orch_xxx -p prj_xxx
+
+${chalk.bold('Environment Variables:')}
+  ORCHESTRA_SERVER     Default server URL
+  ORCHESTRA_API_KEY    Default API key
+  ORCHESTRA_PROJECT_ID Default project ID
+`
+);
+
+// Support environment variables
+if (process.env.ORCHESTRA_SERVER && !process.argv.includes('-s') && !process.argv.includes('--server')) {
+  program.setOptionValue('server', process.env.ORCHESTRA_SERVER);
+}
+if (process.env.ORCHESTRA_API_KEY && !process.argv.includes('-k') && !process.argv.includes('--api-key')) {
+  program.setOptionValue('apiKey', process.env.ORCHESTRA_API_KEY);
+}
+if (process.env.ORCHESTRA_PROJECT_ID && !process.argv.includes('-p') && !process.argv.includes('--project-id')) {
+  program.setOptionValue('projectId', process.env.ORCHESTRA_PROJECT_ID);
+}
 
 program.parse();

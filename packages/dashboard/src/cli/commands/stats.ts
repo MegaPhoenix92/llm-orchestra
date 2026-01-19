@@ -4,6 +4,7 @@
  */
 
 import chalk from 'chalk';
+import { apiFetch, handleApiError, type ApiOptions } from '../api.js';
 
 interface StatsResponse {
   totalRequests: number;
@@ -14,36 +15,31 @@ interface StatsResponse {
   activeProviders?: string[];
 }
 
-export async function statsCommand(serverUrl: string): Promise<void> {
+export async function statsCommand(options: ApiOptions): Promise<void> {
   try {
-    const response = await fetch(`${serverUrl}/api/stats`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const stats = (await response.json()) as StatsResponse;
+    const stats = await apiFetch<StatsResponse>(options, '/api/stats', {
+      projectId: options.projectId,
+    });
 
     console.log('\n' + chalk.bold.cyan('LLM Orchestra Statistics') + '\n');
     console.log(chalk.gray('-'.repeat(40)));
-    
+
     console.log(chalk.bold('Total Requests:   ') + chalk.green(stats.totalRequests.toLocaleString()));
     console.log(chalk.bold('Input Tokens:     ') + chalk.yellow(stats.totalTokens.input.toLocaleString()));
     console.log(chalk.bold('Output Tokens:    ') + chalk.yellow(stats.totalTokens.output.toLocaleString()));
     console.log(chalk.bold('Total Cost:       ') + chalk.magenta('$' + stats.totalCost.toFixed(4)));
     console.log(chalk.bold('Requests/min:     ') + chalk.blue(stats.requestsPerMinute));
     console.log(chalk.bold('Uptime:           ') + formatUptime(stats.uptime));
-    
+
     console.log(chalk.gray('-'.repeat(40)));
-    
+
     if (stats.activeProviders && stats.activeProviders.length > 0) {
       console.log(chalk.bold('Active Providers: ') + stats.activeProviders.join(', '));
     }
-    
+
     console.log('');
   } catch (error) {
-    console.error(chalk.red('Error fetching stats:'), (error as Error).message);
-    console.log(chalk.gray('Make sure the dashboard server is running at ' + serverUrl));
-    process.exit(1);
+    handleApiError(error, options.server);
   }
 }
 

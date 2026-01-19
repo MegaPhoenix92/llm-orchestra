@@ -5,6 +5,7 @@
 
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import { apiFetch, handleApiError, type ApiOptions } from '../api.js';
 
 interface ProviderHealth {
   name: string;
@@ -17,14 +18,11 @@ interface HealthResponse {
   providers: ProviderHealth[];
 }
 
-export async function healthCommand(serverUrl: string): Promise<void> {
+export async function healthCommand(options: ApiOptions): Promise<void> {
   try {
-    const response = await fetch(serverUrl + '/api/health');
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-    }
-
-    const data = (await response.json()) as HealthResponse;
+    const data = await apiFetch<HealthResponse>(options, '/api/health', {
+      projectId: options.projectId,
+    });
     const providers = data.providers || [];
 
     console.log('\n' + chalk.bold.cyan('Provider Health') + '\n');
@@ -45,9 +43,7 @@ export async function healthCommand(serverUrl: string): Promise<void> {
     });
 
     for (const provider of providers) {
-      const status = provider.available
-        ? chalk.green('Available')
-        : chalk.red('Unavailable');
+      const status = provider.available ? chalk.green('Available') : chalk.red('Unavailable');
 
       table.push([
         chalk.cyan(provider.name),
@@ -60,8 +56,6 @@ export async function healthCommand(serverUrl: string): Promise<void> {
     console.log(table.toString());
     console.log('');
   } catch (error) {
-    console.error(chalk.red('Error fetching health:'), (error as Error).message);
-    console.log(chalk.gray('Make sure the dashboard server is running at ' + serverUrl));
-    process.exit(1);
+    handleApiError(error, options.server);
   }
 }
