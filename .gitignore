@@ -33,7 +33,8 @@ npm-debug.log*
 # AI findings (local sharing)
 .ai-findings.jsonl
 
-# AI agent configuration files
+# AI agent configuration files (local only)
+CLAUDE.md
 GEMINI.md
 agents.md
 agentcoord.md
