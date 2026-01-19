@@ -77,18 +77,26 @@ describe('SSE Routes', () => {
     it('should_returnEventStreamContentType_when_connected', async () => {
       // Use a short timeout to get the initial response headers
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 50);
+      const timeoutId = setTimeout(() => controller.abort(), 100);
+
+      let responseReceived = false;
+      let contentType: string | null = null;
 
       try {
         const res = await app.request('/api/events', {
           signal: controller.signal,
         });
+        responseReceived = true;
+        contentType = res.headers.get('content-type');
         clearTimeout(timeoutId);
-        expect(res.headers.get('content-type')).toContain('text/event-stream');
       } catch {
-        // AbortError is expected - we just want headers
+        // AbortError may occur if response takes too long
         clearTimeout(timeoutId);
       }
+
+      // Ensure we got a response before aborting, otherwise fail the test
+      expect(responseReceived).toBe(true);
+      expect(contentType).toContain('text/event-stream');
     });
 
     it('should_callConnectorGetStats_when_connected', async () => {
