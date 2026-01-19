@@ -87,16 +87,18 @@ describe('Provider Registry', () => {
         google: { apiKey: 'test-google-key' },
         mistral: { apiKey: 'test-mistral-key' },
         cohere: { apiKey: 'test-cohere-key' },
+        azureOpenai: { apiKey: 'test-azure-key', baseUrl: 'https://example.openai.azure.com' },
       };
 
       const providers = createProviders(config);
 
-      expect(providers.size).toBe(5);
+      expect(providers.size).toBe(6);
       expect(providers.has('anthropic')).toBe(true);
       expect(providers.has('openai')).toBe(true);
       expect(providers.has('google')).toBe(true);
       expect(providers.has('mistral')).toBe(true);
       expect(providers.has('cohere')).toBe(true);
+      expect(providers.has('azure-openai')).toBe(true);
     });
 
     it('should_skipProvider_when_noApiKey', () => {
@@ -193,6 +195,13 @@ describe('Provider Registry', () => {
       });
     });
 
+    describe('Azure OpenAI models', () => {
+      it('should_returnAzureOpenAI_when_prefixedModel', () => {
+        expect(getProviderForModel('azure:gpt-4o')).toBe('azure-openai');
+        expect(getProviderForModel('azure-openai:gpt-4o')).toBe('azure-openai');
+      });
+    });
+
     describe('Unknown models', () => {
       it('should_returnUndefined_when_unknownModel', () => {
         expect(getProviderForModel('unknown-model')).toBeUndefined();
@@ -245,6 +254,11 @@ describe('Provider Registry', () => {
       expect(models).toContain('command');
       expect(models).toContain('command-r');
       expect(models).toContain('command-r-plus');
+    });
+
+    it('should_returnEmptyArray_when_azureOpenAIProvider', () => {
+      const models = getModelsForProvider('azure-openai');
+      expect(Array.isArray(models)).toBe(true);
     });
   });
 });

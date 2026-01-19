@@ -6,12 +6,13 @@
 // Provider Types
 // ============================================================================
 
-export type ProviderName = 'anthropic' | 'openai' | 'google' | 'mistral' | 'cohere';
+export type ProviderName = 'anthropic' | 'openai' | 'google' | 'mistral' | 'cohere' | 'azure-openai';
 
 export interface ProviderCredentials {
   apiKey: string;
   baseUrl?: string;
   organizationId?: string;
+  apiVersion?: string;
 }
 
 export interface ProvidersConfig {
@@ -20,6 +21,7 @@ export interface ProvidersConfig {
   google?: ProviderCredentials;
   mistral?: ProviderCredentials;
   cohere?: ProviderCredentials;
+  azureOpenai?: ProviderCredentials;
 }
 
 // ============================================================================
