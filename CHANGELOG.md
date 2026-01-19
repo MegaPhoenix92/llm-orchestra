@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-19
+
+### Added
+
+- **Cloud Dashboard**
+  - Multi-tenant cloud deployment support with PostgreSQL storage
+  - Organization and project management for data isolation
+  - JWT authentication for web dashboard users
+  - API key authentication for SDK ingestion
+  - OTLP-compatible `/api/v1/ingest` endpoint
+  - Rate limiting per API key
+  - Team management with role-based access (owner, admin, member, viewer)
+
+- **Database Layer**
+  - Drizzle ORM integration with PostgreSQL
+  - Migration system with `drizzle-kit`
+  - Schema: organizations, projects, users, api_keys, sessions, traces, spans, span_events
+
+- **Authentication**
+  - User registration with organization creation
+  - Login/logout with JWT access and refresh tokens
+  - Password hashing with bcrypt
+  - API key generation with SHA-256 hashing and `orch_` prefix
+
+- **CLI Cloud Support**
+  - Global `--api-key` and `--project-id` options
+  - Environment variable support: `ORCHESTRA_API_KEY`, `ORCHESTRA_PROJECT_ID`, `ORCHESTRA_SERVER`
+  - Automatic validation of cloud mode requirements
+
+- **Testing**
+  - Comprehensive integration tests for auth, API keys, ingestion, and rate limiting
+  - 543+ tests with full cloud flow coverage
+
+### Changed
+
+- CLI commands now use shared `ApiOptions` interface for consistent configuration
+- URL building preserves base path for reverse proxy deployments
+
 ## [0.2.0] - 2026-01-19
 
 ### Added
@@ -62,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | OpenAI | GPT-4, GPT-3.5-Turbo | Streaming, Tools |
 | Google | Gemini 1.5 Pro, Flash | Streaming, Tools |
 
-[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MegaPhoenix92/llm-orchestra/releases/tag/v0.1.0
