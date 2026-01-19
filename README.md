@@ -59,7 +59,7 @@ console.log(response.meta);
 ## Key Features
 
 ### Unified Multi-Model Interface
-- **Single SDK** for Claude, GPT-4, Gemini, Mistral, Cohere, Llama, and more
+- **Single SDK** for Claude, GPT-4, Gemini, Mistral, Cohere, Azure OpenAI, Llama, and more
 - **Automatic failover** with configurable fallback chains
 - **Load balancing** across providers and API keys
 - **Semantic caching** to reduce costs and latency

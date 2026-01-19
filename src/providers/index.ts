@@ -9,6 +9,7 @@ export { OpenAIProvider } from './openai.js';
 export { GoogleProvider } from './google.js';
 export { MistralProvider } from './mistral.js';
 export { CohereProvider } from './cohere.js';
+export { AzureOpenAIProvider } from './azure-openai.js';
 
 import type { ProviderAdapter, ProviderName, ProvidersConfig } from '../types/index.js';
 import { AnthropicProvider } from './anthropic.js';
@@ -16,6 +17,7 @@ import { OpenAIProvider } from './openai.js';
 import { GoogleProvider } from './google.js';
 import { MistralProvider } from './mistral.js';
 import { CohereProvider } from './cohere.js';
+import { AzureOpenAIProvider } from './azure-openai.js';
 
 /**
  * Model to provider mapping
@@ -89,6 +91,10 @@ export function createProviders(config: ProvidersConfig): Map<ProviderName, Prov
     providers.set('cohere', new CohereProvider(config.cohere));
   }
 
+  if (config.azureOpenai?.apiKey) {
+    providers.set('azure-openai', new AzureOpenAIProvider(config.azureOpenai));
+  }
+
   return providers;
 }
 
@@ -106,6 +112,7 @@ export function getProviderForModel(model: string): ProviderName | undefined {
   if (model.startsWith('gpt')) return 'openai';
   if (model.startsWith('gemini')) return 'google';
   if (model.startsWith('mistral')) return 'mistral';
+  if (model.startsWith('azure-openai:') || model.startsWith('azure:')) return 'azure-openai';
 
   return undefined;
 }
