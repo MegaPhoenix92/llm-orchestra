@@ -472,7 +472,7 @@ export class Orchestra {
   private mergeToolCalls(
     target: ToolCall[],
     byKey: Map<string, ToolCall>,
-    counter: { value: number },
+    counter: { value: number; lastKey?: string },
     partials: Partial<ToolCall>[]
   ): void {
     for (const partial of partials) {
@@ -480,7 +480,23 @@ export class Orchestra {
         continue;
       }
 
-      const key = partial.id ?? `unknown_${counter.value++}`;
+      // When a delta has an ID, use it. When it doesn't but has function data,
+      // append to the last known tool call (common in OpenAI streaming where
+      // subsequent chunks omit the ID). Only create a new unknown key if there's
+      // no last key to fall back to.
+      let key: string;
+      if (partial.id) {
+        key = partial.id;
+        counter.lastKey = key;
+      } else if (counter.lastKey) {
+        // Append to the most recent tool call
+        key = counter.lastKey;
+      } else {
+        // Fallback: create a new entry if we have no context
+        key = `unknown_${counter.value++}`;
+        counter.lastKey = key;
+      }
+
       let existing = byKey.get(key);
 
       if (!existing) {

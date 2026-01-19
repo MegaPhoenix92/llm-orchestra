@@ -352,4 +352,146 @@ describe('Orchestra', () => {
       await orchestra.shutdown();
     });
   });
+
+  describe('mergeToolCalls (private method)', () => {
+    it('should_mergeToolCallsWithIds_when_idsProvided', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {},
+      };
+
+      const orchestra = new Orchestra(config);
+      const target: any[] = [];
+      const byKey = new Map<string, any>();
+      const counter = { value: 0 };
+
+      // First chunk with ID and function name
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { id: 'call_123', type: 'function', function: { name: 'get_weather' } },
+      ]);
+
+      // Second chunk with same ID and arguments
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { id: 'call_123', function: { arguments: '{"city":"NYC"}' } },
+      ]);
+
+      expect(target).toHaveLength(1);
+      expect(target[0].id).toBe('call_123');
+      expect(target[0].function.name).toBe('get_weather');
+      expect(target[0].function.arguments).toBe('{"city":"NYC"}');
+
+      await orchestra.shutdown();
+    });
+
+    it('should_appendToLastToolCall_when_subsequentChunksOmitId', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {},
+      };
+
+      const orchestra = new Orchestra(config);
+      const target: any[] = [];
+      const byKey = new Map<string, any>();
+      const counter = { value: 0 };
+
+      // First chunk with ID (common in OpenAI streaming)
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { id: 'call_456', type: 'function', function: { name: 'search' } },
+      ]);
+
+      // Subsequent chunks WITHOUT ID (OpenAI behavior)
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { function: { arguments: '{"query":' } },
+      ]);
+
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { function: { arguments: '"hello world"}' } },
+      ]);
+
+      expect(target).toHaveLength(1);
+      expect(target[0].id).toBe('call_456');
+      expect(target[0].function.name).toBe('search');
+      expect(target[0].function.arguments).toBe('{"query":"hello world"}');
+
+      await orchestra.shutdown();
+    });
+
+    it('should_handleMultipleToolCalls_when_differentIdsProvided', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {},
+      };
+
+      const orchestra = new Orchestra(config);
+      const target: any[] = [];
+      const byKey = new Map<string, any>();
+      const counter = { value: 0 };
+
+      // First tool call
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { id: 'call_1', type: 'function', function: { name: 'func_a', arguments: '{}' } },
+      ]);
+
+      // Second tool call with different ID
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { id: 'call_2', type: 'function', function: { name: 'func_b', arguments: '{}' } },
+      ]);
+
+      expect(target).toHaveLength(2);
+      expect(target[0].function.name).toBe('func_a');
+      expect(target[1].function.name).toBe('func_b');
+
+      await orchestra.shutdown();
+    });
+
+    it('should_createUnknownKey_when_noIdAndNoLastKey', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {},
+      };
+
+      const orchestra = new Orchestra(config);
+      const target: any[] = [];
+      const byKey = new Map<string, any>();
+      const counter = { value: 0 };
+
+      // Chunk without ID when there's no prior context
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        { function: { name: 'orphan_func', arguments: '{}' } },
+      ]);
+
+      expect(target).toHaveLength(1);
+      expect(target[0].id).toBe('unknown_0');
+      expect(target[0].function.name).toBe('orphan_func');
+
+      await orchestra.shutdown();
+    });
+
+    it('should_skipEmptyPartials_when_noMeaningfulData', async () => {
+      const { Orchestra } = await import('../src/orchestra.js');
+
+      const config: OrchestraConfig = {
+        providers: {},
+      };
+
+      const orchestra = new Orchestra(config);
+      const target: any[] = [];
+      const byKey = new Map<string, any>();
+      const counter = { value: 0 };
+
+      // Empty partial should be skipped
+      (orchestra as any).mergeToolCalls(target, byKey, counter, [
+        {},
+        { function: {} },
+      ]);
+
+      expect(target).toHaveLength(0);
+
+      await orchestra.shutdown();
+    });
+  });
 });
