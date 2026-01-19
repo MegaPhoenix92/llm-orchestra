@@ -20,6 +20,9 @@ Simple completion request with cost tracking and stats.
 ### Tool Use (`tool-use.ts`)
 Using function calling/tools with LLM Orchestra.
 
+### Streaming (`streaming.ts`)
+Stream tokens in real time and capture final metadata (tokens, cost, trace ID).
+
 ### Dashboard Integration (`with-dashboard.ts`)
 Real-time monitoring dashboard attached to Orchestra instance.
 
@@ -54,6 +57,9 @@ npx tsx examples/workflow.ts
 
 # With dashboard (opens browser)
 npx tsx examples/with-dashboard.ts
+
+# Streaming
+npx tsx examples/streaming.ts
 
 # Tracing (requires OTEL collector)
 OTEL_EXPORTER_ENDPOINT=http://localhost:4318/v1/traces npx tsx examples/tracing-export.ts
