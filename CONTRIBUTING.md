@@ -6,6 +6,10 @@ Thank you for your interest in contributing to LLM Orchestra! This document prov
 
 We are committed to providing a welcoming and inclusive environment. Please be respectful and constructive in all interactions.
 
+## Security Issues
+
+Please do not open public issues for security vulnerabilities. See [SECURITY.md](SECURITY.md) for the preferred disclosure process.
+
 ## How to Contribute
 
 ### Reporting Bugs
@@ -29,9 +33,10 @@ We are committed to providing a welcoming and inclusive environment. Please be r
 3. Make your changes
 4. Write/update tests
 5. Run the test suite (`npm test`)
-6. Commit with conventional commits (`feat: add amazing feature`)
-7. Push to your fork
-8. Open a Pull Request
+6. Run lint/typecheck (`npm run lint`, `npm run typecheck`)
+7. Commit with conventional commits (`feat: add amazing feature`)
+8. Push to your fork
+9. Open a Pull Request
 
 ## Development Setup
 
@@ -42,9 +47,6 @@ cd llm-orchestra
 
 # Install dependencies
 npm install
-
-# Set up environment
-cp .env.example .env
 
 # Run tests
 npm test
@@ -58,11 +60,9 @@ npm run dev
 ```
 llm-orchestra/
 ├── packages/
-│   ├── core/           # Core orchestration logic
-│   ├── sdk-typescript/ # TypeScript SDK
 │   ├── sdk-python/     # Python SDK
 │   └── dashboard/      # Web dashboard
-├── docs/               # Documentation
+├── src/                # TypeScript SDK + core orchestration logic
 ├── examples/           # Example applications
 └── tests/              # Integration tests
 ```

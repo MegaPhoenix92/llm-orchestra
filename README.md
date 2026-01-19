@@ -2,9 +2,12 @@
 
 **Unified Observability & Orchestration SDK for Multi-Model AI Applications**
 
+[![npm version](https://img.shields.io/npm/v/llm-orchestra.svg)](https://www.npmjs.com/package/llm-orchestra)
+[![CI](https://github.com/MegaPhoenix92/llm-orchestra/actions/workflows/ci.yml/badge.svg)](https://github.com/MegaPhoenix92/llm-orchestra/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](https://github.com/MegaPhoenix92/llm-orchestra)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 
 ---
 

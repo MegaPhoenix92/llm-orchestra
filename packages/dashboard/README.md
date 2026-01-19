@@ -1,5 +1,9 @@
 # llm-orchestra-dashboard
 
+[![npm version](https://img.shields.io/npm/v/llm-orchestra-dashboard.svg)](https://www.npmjs.com/package/llm-orchestra-dashboard)
+[![CI](https://github.com/MegaPhoenix92/llm-orchestra/actions/workflows/ci.yml/badge.svg)](https://github.com/MegaPhoenix92/llm-orchestra/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Local observability dashboard for LLM Orchestra - monitor your multi-model AI applications in real-time.
 
 ## Features
