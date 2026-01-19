@@ -13,7 +13,7 @@ import { statsCommand } from './commands/stats.js';
 import { tracesCommand } from './commands/traces.js';
 import { costsCommand } from './commands/costs.js';
 import { healthCommand } from './commands/health.js';
-import type { ApiOptions } from './api.js';
+import { validateCloudOptions, type ApiOptions } from './api.js';
 
 const DEFAULT_SERVER_URL = 'http://localhost:3737';
 
@@ -24,20 +24,20 @@ program
   .description('CLI for LLM Orchestra Dashboard')
   .version('0.1.0');
 
-// Global options available to all commands
+// Global options available to all commands with environment variable support
 program
   .option('-s, --server <url>', 'Dashboard server URL', DEFAULT_SERVER_URL)
   .option('-k, --api-key <key>', 'API key for cloud authentication')
   .option('-p, --project-id <id>', 'Project ID for multi-tenant queries');
 
 /**
- * Extract API options from command options
+ * Extract API options from command options, with environment variable fallbacks
  */
 function getApiOptions(options: Record<string, unknown>): ApiOptions {
   return {
-    server: (options.server as string) || DEFAULT_SERVER_URL,
-    apiKey: options.apiKey as string | undefined,
-    projectId: options.projectId as string | undefined,
+    server: (options.server as string) || process.env.ORCHESTRA_SERVER || DEFAULT_SERVER_URL,
+    apiKey: (options.apiKey as string | undefined) || process.env.ORCHESTRA_API_KEY,
+    projectId: (options.projectId as string | undefined) || process.env.ORCHESTRA_PROJECT_ID,
   };
 }
 
@@ -46,6 +46,7 @@ program
   .description('Show current statistics')
   .action(async () => {
     const options = getApiOptions(program.opts());
+    validateCloudOptions(options);
     await statsCommand(options);
   });
 
@@ -55,6 +56,7 @@ program
   .option('-l, --limit <n>', 'Number of traces to show', '20')
   .action(async (cmdOptions) => {
     const options = getApiOptions(program.opts());
+    validateCloudOptions(options);
     await tracesCommand(options, parseInt(cmdOptions.limit, 10));
   });
 
@@ -63,6 +65,7 @@ program
   .description('Show cost breakdown by provider and model')
   .action(async () => {
     const options = getApiOptions(program.opts());
+    validateCloudOptions(options);
     await costsCommand(options);
   });
 
@@ -71,6 +74,7 @@ program
   .description('Show provider health status')
   .action(async () => {
     const options = getApiOptions(program.opts());
+    validateCloudOptions(options);
     await healthCommand(options);
   });
 
@@ -115,16 +119,5 @@ ${chalk.bold('Environment Variables:')}
   ORCHESTRA_PROJECT_ID Default project ID
 `
 );
-
-// Support environment variables
-if (process.env.ORCHESTRA_SERVER && !process.argv.includes('-s') && !process.argv.includes('--server')) {
-  program.setOptionValue('server', process.env.ORCHESTRA_SERVER);
-}
-if (process.env.ORCHESTRA_API_KEY && !process.argv.includes('-k') && !process.argv.includes('--api-key')) {
-  program.setOptionValue('apiKey', process.env.ORCHESTRA_API_KEY);
-}
-if (process.env.ORCHESTRA_PROJECT_ID && !process.argv.includes('-p') && !process.argv.includes('--project-id')) {
-  program.setOptionValue('projectId', process.env.ORCHESTRA_PROJECT_ID);
-}
 
 program.parse();
