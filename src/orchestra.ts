@@ -392,7 +392,7 @@ export class Orchestra {
         avgLatencyMs: 0,
       };
     }
-    const providerStats = this.stats.byProvider[provider];
+    const providerStats = this.stats.byProvider[provider]!;
     const prevAvg = providerStats.avgLatencyMs;
     const prevCount = providerStats.requests;
     providerStats.requests++;
