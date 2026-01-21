@@ -201,9 +201,9 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] RBAC and audit logs (v0.3.0)
 
 ### Phase 5: Security Hardening (2026+)
-- [ ] Security scanning (CodeQL, dependency scanning, secret detection)
+- [x] Security scanning (CodeQL, dependency scanning, secret detection)
 - [ ] Encryption at rest (self-hosted PostgreSQL)
-- [ ] Azure AD SSO/OIDC integration
+- [x] Azure AD SSO/OIDC integration
 
 ## Contributing
 
