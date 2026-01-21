@@ -12,6 +12,7 @@ import { users, organizations, orgMembers, sessions } from '../../db/schema.js';
 import { hashPassword, verifyPassword, generateTokenPair, verifyToken } from '../../auth/index.js';
 import { generateSlug } from '../../utils/slug.js';
 import { createRateLimiter } from '../../utils/rate-limit.js';
+import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 
 export interface AuthRoutesOptions {
   db: Database;
@@ -286,6 +287,19 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
 
       setRefreshCookie(c, tokens.refreshToken);
 
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'auth.register',
+        resourceType: 'user',
+        resourceId: userId,
+        ip,
+        userAgent,
+        metadata: { email, orgName, orgSlug: finalSlug },
+      });
+
       return c.json({
         user: {
           id: userId,
@@ -374,6 +388,18 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
 
       setRefreshCookie(c, tokens.refreshToken);
 
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        actorType: 'user',
+        actorId: user.id,
+        action: 'auth.login',
+        resourceType: 'session',
+        resourceId: sessionId,
+        ip,
+        userAgent,
+        metadata: { email: user.email },
+      });
+
       return c.json({
         user: {
           id: user.id,
@@ -418,6 +444,17 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
       await db.delete(sessions).where(eq(sessions.userId, payload.sub));
 
       clearRefreshCookie(c);
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        actorType: 'user',
+        actorId: payload.sub,
+        action: 'auth.logout',
+        resourceType: 'session',
+        resourceId: payload.sub,
+        ip,
+        userAgent,
+      });
 
       return c.json({ success: true });
     } catch (error) {
@@ -503,6 +540,17 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
         .where(eq(sessions.id, session.id));
 
       setRefreshCookie(c, tokens.refreshToken);
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        actorType: 'user',
+        actorId: user.id,
+        action: 'auth.refresh',
+        resourceType: 'session',
+        resourceId: session.id,
+        ip,
+        userAgent,
+      });
 
       return c.json({
         tokens: {

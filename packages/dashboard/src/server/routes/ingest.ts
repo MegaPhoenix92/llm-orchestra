@@ -8,8 +8,9 @@ import { nanoid } from 'nanoid';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../db/index.js';
 import type { NewTrace, NewSpan, NewSpanEvent } from '../../db/schema.js';
-import { traces, spans, spanEvents } from '../../db/schema.js';
+import { traces, spans, spanEvents, projects } from '../../db/schema.js';
 import { createRateLimiter } from '../../utils/rate-limit.js';
+import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 
 // ============================================================================
 // Types
@@ -746,6 +747,31 @@ export function createIngestRoutes(options: IngestRoutesOptions): Hono {
     // Store spans to database
     try {
       const processed = await storeSpans(db, projectId, normalizedSpans);
+
+      const projectRows = await db
+        .select({ orgId: projects.orgId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+      const orgId = projectRows[0]?.orgId ?? null;
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        projectId,
+        actorType: 'api_key',
+        actorId: apiKey.id,
+        action: 'ingest.request',
+        resourceType: 'ingest',
+        resourceId: projectId,
+        ip,
+        userAgent,
+        metadata: {
+          format,
+          processed,
+          spanCount: normalizedSpans.length,
+        },
+      });
 
       return c.json(
         {

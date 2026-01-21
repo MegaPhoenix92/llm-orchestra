@@ -497,9 +497,11 @@ describe('Module Imports', () => {
       expect(schemaModule.projects).toBeDefined();
       expect(schemaModule.users).toBeDefined();
       expect(schemaModule.orgMembers).toBeDefined();
+      expect(schemaModule.projectMembers).toBeDefined();
       expect(schemaModule.apiKeys).toBeDefined();
       expect(schemaModule.sessions).toBeDefined();
       expect(schemaModule.invitations).toBeDefined();
+      expect(schemaModule.auditLogs).toBeDefined();
 
       // Observability tables
       expect(schemaModule.traces).toBeDefined();
@@ -517,6 +519,8 @@ describe('Module Imports', () => {
       expect(schemaModule.schema.organizations).toBeDefined();
       expect(schemaModule.schema.projects).toBeDefined();
       expect(schemaModule.schema.users).toBeDefined();
+      expect(schemaModule.schema.projectMembers).toBeDefined();
+      expect(schemaModule.schema.auditLogs).toBeDefined();
       expect(schemaModule.schema.traces).toBeDefined();
       expect(schemaModule.schema.spans).toBeDefined();
     });

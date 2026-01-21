@@ -198,7 +198,7 @@ const result = await trace('user-question-flow', async (span) => {
 ### Phase 4: Enterprise (Q4 2026) 🔄
 - [x] Cloud dashboard (v0.3.0)
 - [x] Team management (v0.3.0)
-- [ ] RBAC and audit logs
+- [x] RBAC and audit logs (v0.3.0)
 - [ ] SOC 2 compliance
 
 ## Contributing

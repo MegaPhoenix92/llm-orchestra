@@ -11,11 +11,13 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { createDatabase, type Database } from './db/index.js';
 import { PostgresConnector } from './connectors/postgres.js';
+import { requireProjectPermission } from './auth/rbac.js';
 import { createAuthMiddleware, createApiKeyMiddleware } from './server/middleware/index.js';
 import { createAuthRoutes } from './server/routes/auth.js';
 import { createAdminRoutes } from './server/routes/admin.js';
 import { createIngestRoutes } from './server/routes/ingest.js';
 import { createPageRoutes } from './server/routes/pages.js';
+import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
 import type { Pool } from 'pg';
 
 // ============================================================================
@@ -592,17 +594,38 @@ export async function createCloudDashboard(
   // Project-scoped API routes handler
   // These routes require a projectId query parameter
   app.get('/api/stats', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
     }
 
+    const permission = await requireProjectPermission(db, userId, projectId, 'stats:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
+    }
+
     const connector = new PostgresConnector(db, projectId);
     const stats = await connector.getStats();
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'stats.read',
+      resourceType: 'stats',
+      resourceId: projectId,
+      ip,
+      userAgent,
+    });
+
     return c.json(stats);
   });
 
   app.get('/api/traces', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
@@ -611,15 +634,41 @@ export async function createCloudDashboard(
     const limit = parseInt(c.req.query('limit') || '50', 10);
     const offset = parseInt(c.req.query('offset') || '0', 10);
 
+    const permission = await requireProjectPermission(db, userId, projectId, 'traces:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
+    }
+
     const connector = new PostgresConnector(db, projectId);
     const traces = await connector.getTraces({ limit, offset });
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'traces.read',
+      resourceType: 'trace',
+      resourceId: projectId,
+      ip,
+      userAgent,
+      metadata: { limit, offset },
+    });
+
     return c.json({ traces, limit, offset });
   });
 
   app.get('/api/traces/:id', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
+    }
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'traces:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
     }
 
     const id = c.req.param('id');
@@ -629,29 +678,84 @@ export async function createCloudDashboard(
     if (!trace) {
       return c.json({ error: 'Trace not found' }, 404);
     }
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'trace.read',
+      resourceType: 'trace',
+      resourceId: id,
+      ip,
+      userAgent,
+    });
     return c.json(trace);
   });
 
   app.get('/api/health', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
     }
 
+    const permission = await requireProjectPermission(db, userId, projectId, 'health:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
+    }
+
     const connector = new PostgresConnector(db, projectId);
     const health = await connector.getProviderHealth();
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'health.read',
+      resourceType: 'health',
+      resourceId: projectId,
+      ip,
+      userAgent,
+    });
+
     return c.json({ providers: health });
   });
 
   app.get('/api/requests', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
     }
 
     const limit = parseInt(c.req.query('limit') || '20', 10);
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'requests:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
+    }
+
     const connector = new PostgresConnector(db, projectId);
     const requests = await connector.getRecentRequests(limit);
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'requests.read',
+      resourceType: 'request',
+      resourceId: projectId,
+      ip,
+      userAgent,
+      metadata: { limit },
+    });
+
     return c.json({ requests });
   });
 
@@ -660,15 +764,34 @@ export async function createCloudDashboard(
   // ============================================================================
 
   app.get('/api/events', async (c) => {
+    const userId = c.get('userId');
     const projectId = c.req.query('projectId');
     if (!projectId) {
       return c.json({ error: 'projectId query parameter is required' }, 400);
+    }
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'stats:read');
+    if (!permission) {
+      return c.json({ error: 'Project not found or access denied' }, 403);
     }
 
     const connector = new PostgresConnector(db, projectId);
 
     // Import streamSSE dynamically to avoid import issues
     const { streamSSE } = await import('hono/streaming');
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'events.subscribe',
+      resourceType: 'events',
+      resourceId: projectId,
+      ip,
+      userAgent,
+    });
 
     return streamSSE(c, async (stream) => {
       let isActive = true;
@@ -800,6 +923,25 @@ export async function createCloudDashboard(
   // Project dashboard page - shows the full dashboard for a specific project
   app.get('/project/:projectId', async (c) => {
     const projectId = c.req.param('projectId');
+    const userId = c.get('userId');
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'project:read');
+    if (!permission) {
+      return c.redirect('/');
+    }
+
+    const { ip, userAgent } = getRequestMetadata(c);
+    await writeAuditLog(db, {
+      orgId: permission.orgId,
+      projectId,
+      actorType: 'user',
+      actorId: userId,
+      action: 'dashboard.view',
+      resourceType: 'project_dashboard',
+      resourceId: projectId,
+      ip,
+      userAgent,
+    });
 
     // Create a connector for this project
     const connector = new PostgresConnector(db, projectId);
@@ -833,6 +975,12 @@ export async function createCloudDashboard(
   app.get('/project/:projectId/:page', async (c) => {
     const projectId = c.req.param('projectId');
     const page = c.req.param('page');
+    const userId = c.get('userId');
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'project:read');
+    if (!permission) {
+      return c.redirect('/');
+    }
 
     const connector = new PostgresConnector(db, projectId);
     const pageRoutes = createPageRoutes(connector);
@@ -848,6 +996,12 @@ export async function createCloudDashboard(
   app.get('/project/:projectId/traces/:traceId', async (c) => {
     const projectId = c.req.param('projectId');
     const traceId = c.req.param('traceId');
+    const userId = c.get('userId');
+
+    const permission = await requireProjectPermission(db, userId, projectId, 'project:read');
+    if (!permission) {
+      return c.redirect('/');
+    }
 
     const connector = new PostgresConnector(db, projectId);
     const pageRoutes = createPageRoutes(connector);

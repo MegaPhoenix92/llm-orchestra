@@ -5,7 +5,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Database } from '../../db/index.js';
 import {
@@ -15,80 +15,17 @@ import {
   orgMembers,
   invitations,
   users,
+  auditLogs,
 } from '../../db/schema.js';
 import { generateApiKey } from '../../auth/index.js';
+import { requireOrgPermission, requireProjectPermission, type Role } from '../../auth/rbac.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { generateSlug } from '../../utils/slug.js';
+import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 
 export interface AdminRoutesOptions {
   db: Database;
   jwtSecret: string;
-}
-
-/** Role hierarchy for permission checks */
-type Role = 'owner' | 'admin' | 'member' | 'viewer';
-
-/** Roles that can manage team and create projects */
-const MANAGER_ROLES: Role[] = ['owner', 'admin'];
-
-/** Roles that can manage API keys */
-const KEY_MANAGER_ROLES: Role[] = ['owner', 'admin', 'member'];
-
-/**
- * Check if a user has a specific role or higher in an organization
- * @param db - Database instance
- * @param userId - User ID to check
- * @param orgId - Organization ID to check against
- * @param allowedRoles - Array of allowed roles
- * @returns The membership record if user has permission, null otherwise
- */
-async function checkOrgPermission(
-  db: Database,
-  userId: string,
-  orgId: string,
-  allowedRoles: Role[]
-): Promise<{ role: Role } | null> {
-  const membership = await db
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(and(eq(orgMembers.userId, userId), eq(orgMembers.orgId, orgId)))
-    .limit(1);
-
-  if (membership.length === 0) {
-    return null;
-  }
-
-  const userRole = membership[0].role as Role;
-  if (!allowedRoles.includes(userRole)) {
-    return null;
-  }
-
-  return { role: userRole };
-}
-
-/**
- * Check if a user has any membership in an organization
- * @param db - Database instance
- * @param userId - User ID to check
- * @param orgId - Organization ID to check against
- * @returns The membership record if user is a member, null otherwise
- */
-async function checkOrgMembership(
-  db: Database,
-  userId: string,
-  orgId: string
-): Promise<{ role: Role } | null> {
-  const membership = await db
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(and(eq(orgMembers.userId, userId), eq(orgMembers.orgId, orgId)))
-    .limit(1);
-
-  if (membership.length === 0) {
-    return null;
-  }
-
-  return { role: membership[0].role as Role };
 }
 
 /**
@@ -205,6 +142,19 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         });
       });
 
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'org.create',
+        resourceType: 'organization',
+        resourceId: orgId,
+        ip,
+        userAgent,
+        metadata: { name: name.trim(), slug: finalSlug },
+      });
+
       return c.json({
         organization: {
           id: orgId,
@@ -233,8 +183,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const orgId = c.req.param('id');
 
       // Check user has access to this organization
-      const membership = await checkOrgMembership(db, userId, orgId);
-      if (!membership) {
+      const permission = await requireOrgPermission(db, userId, orgId, 'org:read');
+      if (!permission) {
         return c.json({ error: 'Organization not found or access denied' }, 404);
       }
 
@@ -257,7 +207,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
           slug: org.slug,
           plan: org.plan,
           settings: org.settings,
-          role: membership.role,
+          role: permission.role,
           createdAt: org.createdAt,
           updatedAt: org.updatedAt,
         },
@@ -280,8 +230,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const body = await c.req.json();
       const { name, settings } = body;
 
-      // Check user has admin/owner permission
-      const permission = await checkOrgPermission(db, userId, orgId, MANAGER_ROLES);
+      // Check user has update permission
+      const permission = await requireOrgPermission(db, userId, orgId, 'org:update');
       if (!permission) {
         return c.json({ error: 'Organization not found or insufficient permissions' }, 403);
       }
@@ -317,6 +267,19 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         .limit(1);
 
       const org = orgResults[0];
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'org.update',
+        resourceType: 'organization',
+        resourceId: orgId,
+        ip,
+        userAgent,
+        metadata: { name: org.name, settings: org.settings },
+      });
 
       return c.json({
         organization: {
@@ -354,9 +317,9 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'orgId query parameter is required' }, 400);
       }
 
-      // Check user has access to this organization
-      const membership = await checkOrgMembership(db, userId, orgId);
-      if (!membership) {
+      // Check user has permission to view projects
+      const permission = await requireOrgPermission(db, userId, orgId, 'project:read');
+      if (!permission) {
         return c.json({ error: 'Organization not found or access denied' }, 403);
       }
 
@@ -401,8 +364,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'Project name is required' }, 400);
       }
 
-      // Check user has admin/owner permission
-      const permission = await checkOrgPermission(db, userId, orgId, MANAGER_ROLES);
+      // Check user has permission to create projects
+      const permission = await requireOrgPermission(db, userId, orgId, 'project:create');
       if (!permission) {
         return c.json({ error: 'Organization not found or insufficient permissions' }, 403);
       }
@@ -427,6 +390,20 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         slug: finalSlug,
         createdAt: now,
         updatedAt: now,
+      });
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'project.create',
+        resourceType: 'project',
+        resourceId: projectId,
+        ip,
+        userAgent,
+        metadata: { name: name.trim(), slug: finalSlug },
       });
 
       return c.json({
@@ -454,6 +431,16 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const userId = c.get('userId');
       const projectId = c.req.param('id');
 
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'project:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
       // Get project
       const projectResults = await db
         .select()
@@ -466,12 +453,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       }
 
       const project = projectResults[0];
-
-      // Check user has access to the organization
-      const membership = await checkOrgMembership(db, userId, project.orgId);
-      if (!membership) {
-        return c.json({ error: 'Project not found or access denied' }, 404);
-      }
 
       return c.json({
         project: {
@@ -501,6 +482,16 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const body = await c.req.json();
       const { name } = body;
 
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'project:update'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
+      }
+
       // Get project to check org
       const projectResults = await db
         .select()
@@ -513,12 +504,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       }
 
       const project = projectResults[0];
-
-      // Check user has admin/owner permission
-      const permission = await checkOrgPermission(db, userId, project.orgId, MANAGER_ROLES);
-      if (!permission) {
-        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
-      }
 
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
         return c.json({ error: 'Project name is required' }, 400);
@@ -533,6 +518,20 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
           updatedAt: now,
         })
         .where(eq(projects.id, projectId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: project.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'project.update',
+        resourceType: 'project',
+        resourceId: projectId,
+        ip,
+        userAgent,
+        metadata: { name: name.trim() },
+      });
 
       return c.json({
         project: {
@@ -562,6 +561,16 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const userId = c.get('userId');
       const projectId = c.req.param('id');
 
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'project:delete'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
+      }
+
       // Get project to check org
       const projectResults = await db
         .select()
@@ -575,15 +584,23 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
 
       const project = projectResults[0];
 
-      // Check user has admin/owner permission
-      const permission = await checkOrgPermission(db, userId, project.orgId, MANAGER_ROLES);
-      if (!permission) {
-        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
-      }
-
       // Note: This is a hard delete. For soft delete, update schema to add deletedAt
       // and change this to: await db.update(projects).set({ deletedAt: new Date() }).where(...)
       await db.delete(projects).where(eq(projects.id, projectId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: project.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'project.delete',
+        resourceType: 'project',
+        resourceId: projectId,
+        ip,
+        userAgent,
+        metadata: { name: project.name, slug: project.slug },
+      });
 
       return c.json({ success: true, message: 'Project deleted successfully' });
     } catch (error) {
@@ -610,6 +627,16 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'projectId query parameter is required' }, 400);
       }
 
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'api_key:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
       // Get project to check org
       const projectResults = await db
         .select()
@@ -619,14 +646,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
 
       if (projectResults.length === 0) {
         return c.json({ error: 'Project not found' }, 404);
-      }
-
-      const project = projectResults[0];
-
-      // Check user has access to the organization
-      const membership = await checkOrgMembership(db, userId, project.orgId);
-      if (!membership) {
-        return c.json({ error: 'Project not found or access denied' }, 404);
       }
 
       // Get API keys for project
@@ -682,6 +701,16 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'API key name is required' }, 400);
       }
 
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'api_key:create'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
+      }
+
       // Get project to check org
       const projectResults = await db
         .select()
@@ -694,12 +723,6 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       }
 
       const project = projectResults[0];
-
-      // Check user has member or higher permission
-      const permission = await checkOrgPermission(db, userId, project.orgId, KEY_MANAGER_ROLES);
-      if (!permission) {
-        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
-      }
 
       // Generate API key
       const keyId = `key_${nanoid(21)}`;
@@ -724,6 +747,20 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         scopes: Array.isArray(scopes) ? scopes : ['ingest'],
         expiresAt: parsedExpiresAt,
         createdAt: now,
+      });
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: project.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'api_key.create',
+        resourceType: 'api_key',
+        resourceId: keyId,
+        ip,
+        userAgent,
+        metadata: { name: name.trim(), prefix, scopes: Array.isArray(scopes) ? scopes : ['ingest'] },
       });
 
       return c.json({
@@ -755,11 +792,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const userId = c.get('userId');
       const keyId = c.req.param('id');
 
-      // Get API key with project info
       const keyResults = await db
         .select({
           id: apiKeys.id,
           projectId: apiKeys.projectId,
+          name: apiKeys.name,
+          prefix: apiKeys.prefix,
         })
         .from(apiKeys)
         .where(eq(apiKeys.id, keyId))
@@ -771,7 +809,17 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
 
       const apiKey = keyResults[0];
 
-      // Get project to check org
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        apiKey.projectId,
+        'api_key:delete'
+      );
+      if (!permission) {
+        return c.json({ error: 'API key not found or insufficient permissions' }, 403);
+      }
+
+      // Get API key with project info
       const projectResults = await db
         .select()
         .from(projects)
@@ -784,13 +832,21 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
 
       const project = projectResults[0];
 
-      // Check user has member or higher permission
-      const permission = await checkOrgPermission(db, userId, project.orgId, KEY_MANAGER_ROLES);
-      if (!permission) {
-        return c.json({ error: 'API key not found or insufficient permissions' }, 403);
-      }
-
       await db.delete(apiKeys).where(eq(apiKeys.id, keyId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: project.orgId,
+        projectId: apiKey.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'api_key.delete',
+        resourceType: 'api_key',
+        resourceId: keyId,
+        ip,
+        userAgent,
+        metadata: { name: apiKey.name, prefix: apiKey.prefix },
+      });
 
       return c.json({ success: true, message: 'API key deleted successfully' });
     } catch (error) {
@@ -817,9 +873,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'orgId query parameter is required' }, 400);
       }
 
-      // Check user has access to this organization
-      const membership = await checkOrgMembership(db, userId, orgId);
-      if (!membership) {
+      const permission = await requireOrgPermission(db, userId, orgId, 'team:read');
+      if (!permission) {
         return c.json({ error: 'Organization not found or access denied' }, 403);
       }
 
@@ -895,8 +950,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const validRoles: Role[] = ['admin', 'member', 'viewer'];
       const inviteRole: Role = validRoles.includes(role as Role) ? (role as Role) : 'member';
 
-      // Check user has admin/owner permission
-      const permission = await checkOrgPermission(db, userId, orgId, MANAGER_ROLES);
+      const permission = await requireOrgPermission(db, userId, orgId, 'team:invite');
       if (!permission) {
         return c.json({ error: 'Organization not found or insufficient permissions' }, 403);
       }
@@ -943,6 +997,19 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         createdAt: now,
       });
 
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'team.invite',
+        resourceType: 'invitation',
+        resourceId: inviteId,
+        ip,
+        userAgent,
+        metadata: { email: email.toLowerCase(), role: inviteRole },
+      });
+
       return c.json({
         invitation: {
           id: inviteId,
@@ -976,8 +1043,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         return c.json({ error: 'orgId query parameter is required' }, 400);
       }
 
-      // Check current user has admin/owner permission
-      const permission = await checkOrgPermission(db, currentUserId, orgId, MANAGER_ROLES);
+      const permission = await requireOrgPermission(db, currentUserId, orgId, 'team:remove');
       if (!permission) {
         return c.json({ error: 'Organization not found or insufficient permissions' }, 403);
       }
@@ -1014,10 +1080,76 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         .delete(orgMembers)
         .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, targetUserId)));
 
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId,
+        actorType: 'user',
+        actorId: currentUserId,
+        action: 'team.remove',
+        resourceType: 'org_member',
+        resourceId: targetMember[0].id,
+        ip,
+        userAgent,
+        metadata: { targetUserId, targetRole },
+      });
+
       return c.json({ success: true, message: 'Member removed successfully' });
     } catch (error) {
       console.error('Remove member error:', error);
       return c.json({ error: 'Failed to remove member' }, 500);
+    }
+  });
+
+  // ============================================================================
+  // Audit Log Routes
+  // ============================================================================
+
+  /**
+   * GET /api/admin/audit-logs
+   * List audit logs for an organization
+   * Query params: orgId (required), projectId, action, actorId, resourceType, limit, offset
+   */
+  admin.get('/audit-logs', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const orgId = c.req.query('orgId');
+
+      if (!orgId) {
+        return c.json({ error: 'orgId query parameter is required' }, 400);
+      }
+
+      const permission = await requireOrgPermission(db, userId, orgId, 'audit:read');
+      if (!permission) {
+        return c.json({ error: 'Organization not found or insufficient permissions' }, 403);
+      }
+
+      const projectId = c.req.query('projectId');
+      const action = c.req.query('action');
+      const actorId = c.req.query('actorId');
+      const resourceType = c.req.query('resourceType');
+      const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+      const offset = parseInt(c.req.query('offset') || '0', 10);
+
+      const conditions = [eq(auditLogs.orgId, orgId)];
+      if (projectId) conditions.push(eq(auditLogs.projectId, projectId));
+      if (action) conditions.push(eq(auditLogs.action, action));
+      if (actorId) conditions.push(eq(auditLogs.actorId, actorId));
+      if (resourceType) conditions.push(eq(auditLogs.resourceType, resourceType));
+
+      const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+      const logs = await db
+        .select()
+        .from(auditLogs)
+        .where(whereClause)
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      return c.json({ auditLogs: logs, limit, offset });
+    } catch (error) {
+      console.error('List audit logs error:', error);
+      return c.json({ error: 'Failed to list audit logs' }, 500);
     }
   });
 
