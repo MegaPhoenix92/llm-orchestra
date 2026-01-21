@@ -79,6 +79,7 @@
     "jsonwebtoken": "^9.0.0",
     "nanoid": "^5.0.0",
     "open": "^10.0.0",
+    "openid-client": "^6.1.0",
     "pg": "^8.11.3"
   },
   "devDependencies": {

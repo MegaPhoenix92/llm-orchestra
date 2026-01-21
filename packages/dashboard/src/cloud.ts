@@ -17,7 +17,9 @@ import { createAuthRoutes } from './server/routes/auth.js';
 import { createAdminRoutes } from './server/routes/admin.js';
 import { createIngestRoutes } from './server/routes/ingest.js';
 import { createPageRoutes } from './server/routes/pages.js';
+import { createSsoRoutes } from './server/routes/sso.js';
 import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
+import { isSsoEnabled, type SsoConfig } from './auth/sso.js';
 import type { Pool } from 'pg';
 
 // ============================================================================
@@ -39,6 +41,8 @@ export interface CloudDashboardOptions {
     /** JWT signing secret */
     jwtSecret: string;
   };
+  /** Azure AD SSO configuration (optional) */
+  sso?: SsoConfig;
   /** Open browser on start (default: false) */
   open?: boolean;
 }
@@ -76,8 +80,20 @@ function escapeHtml(text: string): string {
 
 /**
  * Login page HTML template
+ * @param ssoEnabled - Whether SSO is enabled
  */
-function getLoginPageHtml(): string {
+function getLoginPageHtml(ssoEnabled: boolean = false): string {
+  const ssoButton = ssoEnabled
+    ? `
+    <div class="divider">
+      <span>or</span>
+    </div>
+    <a href="/api/auth/sso/azure" class="btn-sso">
+      <svg width="20" height="20" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10v10H0V0zm11 0h10v10H11V0zM0 11h10v10H0V11zm11 0h10v10H11V11z" fill="#00a4ef"/></svg>
+      Sign in with Microsoft
+    </a>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -98,6 +114,11 @@ function getLoginPageHtml(): string {
     .error { color: #f87171; font-size: 0.875rem; margin-top: 0.5rem; display: none; }
     .link { text-align: center; margin-top: 1rem; }
     .link a { color: #6366f1; text-decoration: none; }
+    .divider { display: flex; align-items: center; margin: 1.5rem 0; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #334155; }
+    .divider span { padding: 0 1rem; color: #64748b; font-size: 0.875rem; }
+    .btn-sso { display: flex; align-items: center; justify-content: center; gap: 0.75rem; width: 100%; padding: 0.75rem; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 0.5rem; font-size: 1rem; cursor: pointer; text-decoration: none; transition: border-color 0.2s; }
+    .btn-sso:hover { border-color: #6366f1; }
   </style>
 </head>
 <body>
@@ -114,7 +135,7 @@ function getLoginPageHtml(): string {
       </div>
       <div class="error" id="error"></div>
       <button type="submit">Sign In</button>
-    </form>
+    </form>${ssoButton}
     <div class="link">
       <a href="/register">Don't have an account? Register</a>
     </div>
@@ -557,6 +578,11 @@ export async function createCloudDashboard(
   // Authentication routes (login, register, refresh, etc.)
   app.route('/api/auth', createAuthRoutes({ db, jwtSecret }));
 
+  // SSO routes (Azure AD / OIDC)
+  if (options.sso && isSsoEnabled(options.sso)) {
+    app.route('/api/auth/sso', createSsoRoutes({ db, jwtSecret, sso: options.sso }));
+  }
+
   // ============================================================================
   // SDK Ingestion Routes (API key authentication)
   // ============================================================================
@@ -906,8 +932,9 @@ export async function createCloudDashboard(
   });
 
   // Login page
+  const ssoEnabled = !!(options.sso && isSsoEnabled(options.sso));
   app.get('/login', (c) => {
-    return c.html(getLoginPageHtml());
+    return c.html(getLoginPageHtml(ssoEnabled));
   });
 
   // Register page

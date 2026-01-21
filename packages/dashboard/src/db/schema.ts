@@ -59,12 +59,17 @@ export type NewProject = InferInsertModel<typeof projects>;
 
 /**
  * Users - Web dashboard users
+ * Supports both password-based auth and SSO (Azure AD)
  */
 export const users = pgTable('users', {
   id: text('id').primaryKey(), // prefix 'usr_'
   email: text('email').unique().notNull(),
-  passwordHash: text('password_hash').notNull(),
+  passwordHash: text('password_hash').notNull(), // Empty string for SSO-only users
   name: text('name'),
+  /** SSO provider: 'azure' for Azure AD, null for password auth */
+  ssoProvider: text('sso_provider'),
+  /** External SSO ID (e.g., Azure AD object ID) */
+  ssoId: text('sso_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
