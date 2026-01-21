@@ -97,6 +97,33 @@ export type OrgMember = InferSelectModel<typeof orgMembers>;
 export type NewOrgMember = InferInsertModel<typeof orgMembers>;
 
 /**
+ * Project Members - User-project relationship (resource-level RBAC)
+ */
+export const projectMembers = pgTable(
+  'project_members',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    projectUserUnique: unique('project_members_project_user_unique').on(
+      table.projectId,
+      table.userId
+    ),
+  })
+);
+
+export type ProjectMember = InferSelectModel<typeof projectMembers>;
+export type NewProjectMember = InferInsertModel<typeof projectMembers>;
+
+/**
  * API Keys - SDK authentication
  *
  * Note on prefix uniqueness: The prefix column uses a unique constraint
@@ -157,6 +184,32 @@ export const invitations = pgTable('invitations', {
 
 export type Invitation = InferSelectModel<typeof invitations>;
 export type NewInvitation = InferInsertModel<typeof invitations>;
+
+// ============================================================================
+// Audit Logs
+// ============================================================================
+
+/**
+ * Audit Logs - Immutable trail of user and API actions
+ */
+export const auditLogs = pgTable('audit_logs', {
+  id: text('id').primaryKey(), // prefix 'aud_'
+  orgId: text('org_id').references(() => organizations.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  actorType: text('actor_type', { enum: ['user', 'api_key', 'system'] }).notNull(),
+  actorId: text('actor_id').notNull(),
+  action: text('action').notNull(),
+  resourceType: text('resource_type'),
+  resourceId: text('resource_id'),
+  status: text('status', { enum: ['success', 'denied', 'error'] }).default('success'),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type AuditLog = InferSelectModel<typeof auditLogs>;
+export type NewAuditLog = InferInsertModel<typeof auditLogs>;
 
 // ============================================================================
 // Observability Tables
@@ -290,9 +343,12 @@ export const schema = {
   projects,
   users,
   orgMembers,
+  projectMembers,
   apiKeys,
   sessions,
   invitations,
+  // Audit
+  auditLogs,
   // Observability
   traces,
   spans,
