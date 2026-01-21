@@ -1,0 +1,57 @@
+# Gitleaks configuration for LLM Orchestra
+# https://github.com/gitleaks/gitleaks
+
+title = "LLM Orchestra Secret Detection"
+
+[extend]
+# Use the default gitleaks config as a base
+useDefault = true
+
+[allowlist]
+description = "Allowlist for false positives"
+
+# Ignore test files with mock/fake credentials
+paths = [
+  '''tests/.*\.test\.ts$''',
+  '''tests/.*\.test\.js$''',
+  '''\.test\.ts$''',
+  '''\.test\.js$''',
+  '''\.spec\.ts$''',
+  '''\.spec\.js$''',
+  '''examples/.*''',
+  '''docs/.*''',
+]
+
+# Ignore specific patterns that are clearly not secrets
+regexes = [
+  # Test API keys with obvious prefixes
+  '''sk-test[-_]''',
+  '''test[-_]key[-_]''',
+  '''fake[-_]key[-_]''',
+  '''mock[-_]key[-_]''',
+  '''example[-_]key[-_]''',
+  # Placeholder patterns
+  '''your[-_]api[-_]key''',
+  '''xxx+''',
+  '''REPLACE[-_]ME''',
+  # JWT test tokens (expired/invalid for testing)
+  '''eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*''',
+]
+
+# Specific commits to ignore (if needed)
+commits = []
+
+# Stopwords - strings that indicate a value is not a real secret
+stopwords = [
+  "example",
+  "sample",
+  "test",
+  "fake",
+  "mock",
+  "dummy",
+  "placeholder",
+  "changeme",
+  "replace",
+  "your-",
+  "your_",
+]
