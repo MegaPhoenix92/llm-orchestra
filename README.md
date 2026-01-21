@@ -195,11 +195,16 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] Workflow engine
 - [x] Memory backends
 
-### Phase 4: Enterprise (Q4 2026) 🔄
+### Phase 4: Enterprise (Q4 2026) ✅
 - [x] Cloud dashboard (v0.3.0)
 - [x] Team management (v0.3.0)
 - [x] RBAC and audit logs (v0.3.0)
-- [ ] SOC 2 compliance
+
+### Phase 5: Cloud Hardening (2026+)
+- [ ] Encryption at rest (database-level)
+- [ ] Security scanning and penetration testing
+- [ ] SOC 2 Type II certification (cloud offering only)
+- [ ] SSO/SAML integration
 
 ## Contributing
 
