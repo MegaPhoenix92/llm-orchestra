@@ -133,7 +133,7 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
       const returnTo = c.req.query('returnTo') || '/';
 
       // Generate authorization URL with PKCE
-      const { url } = generateAuthorizationUrl(oidcClient, returnTo);
+      const { url } = await generateAuthorizationUrl(oidcClient, returnTo);
 
       // Redirect to Azure AD
       return c.redirect(url);
@@ -192,7 +192,7 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
           resourceId: userInfo.azureId,
           ip,
           userAgent,
-          status: 'failure',
+          status: 'denied',
           metadata: { email: userInfo.email, allowedDomains: sso?.allowedDomains },
         });
         return c.redirect('/?error=sso_failed&message=Email+domain+not+allowed');

@@ -134,14 +134,14 @@ export async function createOidcClient(ssoConfig: SsoConfig): Promise<OidcClient
 /**
  * Generate authorization URL for Azure AD login
  */
-export function generateAuthorizationUrl(oidcClient: OidcClientConfig, returnTo?: string): {
+export async function generateAuthorizationUrl(oidcClient: OidcClientConfig, returnTo?: string): Promise<{
   url: string;
   state: OidcState;
-} {
+}> {
   const state = client.randomState();
   const nonce = client.randomNonce();
   const codeVerifier = client.randomPKCECodeVerifier();
-  const codeChallenge = client.calculatePKCECodeChallenge(codeVerifier);
+  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
 
   const oidcState: OidcState = {
     state,
