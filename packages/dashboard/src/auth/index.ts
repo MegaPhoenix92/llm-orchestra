@@ -5,6 +5,7 @@
  * - Password hashing with bcrypt
  * - API key generation and verification
  * - JWT token management
+ * - Azure AD SSO / OIDC integration
  */
 
 // Password utilities
@@ -29,3 +30,18 @@ export {
   type JwtPayload,
   type TokenPair,
 } from './jwt.js';
+
+// SSO / OIDC utilities
+export {
+  createOidcClient,
+  generateAuthorizationUrl,
+  handleCallback,
+  storeOidcState,
+  retrieveOidcState,
+  isEmailAllowed,
+  isSsoEnabled,
+  type SsoConfig,
+  type OidcState,
+  type SsoUserInfo,
+  type OidcClientConfig,
+} from './sso.js';
