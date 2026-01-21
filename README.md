@@ -200,11 +200,10 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] Team management (v0.3.0)
 - [x] RBAC and audit logs (v0.3.0)
 
-### Phase 5: Cloud Hardening (2026+)
-- [ ] Encryption at rest (database-level)
-- [ ] Security scanning and penetration testing
-- [ ] SOC 2 Type II certification (cloud offering only)
-- [ ] SSO/SAML integration
+### Phase 5: Security Hardening (2026+)
+- [ ] Security scanning (CodeQL, dependency scanning, secret detection)
+- [ ] Encryption at rest (self-hosted PostgreSQL)
+- [ ] Azure AD SSO/OIDC integration
 
 ## Contributing
 
