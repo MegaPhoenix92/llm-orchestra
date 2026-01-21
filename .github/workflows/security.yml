@@ -50,6 +50,9 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    # Note: Requires Dependency Graph to be enabled in repo settings
+    # https://github.com/<owner>/<repo>/settings/security_analysis
+    continue-on-error: true
 
     steps:
       - name: Checkout
