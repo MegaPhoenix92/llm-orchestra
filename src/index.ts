@@ -105,6 +105,9 @@ export type {
 export { InMemoryMemoryBackend } from './memory/index.js';
 export type { MemoryBackend, InMemoryMemoryConfig } from './memory/index.js';
 
+// Integration exports
+export * from './integrations/index.js';
+
 /**
  * Create an Orchestra instance with minimal configuration
  */

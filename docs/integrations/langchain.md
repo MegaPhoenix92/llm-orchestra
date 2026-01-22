@@ -1,8 +1,8 @@
 # LangChain Integration
 
-This guide shows how to use LangChain prompts with LLM Orchestra as the model
-executor. Orchestra handles provider routing, observability, and failover while
-LangChain provides prompt composition.
+This guide shows how to use LangChain with LLM Orchestra. Orchestra provides
+a `OrchestraChatModel` wrapper that enables use in LCEL pipelines, plus helpers
+for message conversion.
 
 ## Install
 
@@ -10,7 +10,77 @@ LangChain provides prompt composition.
 npm install llm-orchestra @langchain/core
 ```
 
-## Prompt + Orchestra Example
+## Quick Start (OrchestraChatModel)
+
+The `OrchestraChatModel` class provides full LCEL compatibility:
+
+```ts
+import { Orchestra, OrchestraChatModel } from 'llm-orchestra';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { StringOutputParser } from '@langchain/core/output_parsers';
+
+const orchestra = new Orchestra({
+  providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY ?? '' } },
+});
+
+const model = new OrchestraChatModel({
+  orchestra,
+  model: 'claude-3-haiku',
+  fallback: ['gpt-4o-mini'],  // Automatic failover
+  tags: ['production'],       // For cost tracking
+});
+
+// LCEL-style chaining
+const chain = ChatPromptTemplate.fromMessages([
+  ['system', 'You are a helpful assistant.'],
+  ['human', '{question}'],
+]).pipe(model).pipe(new StringOutputParser());
+
+const result = await chain.invoke({ question: 'What is AI?' });
+```
+
+## Streaming
+
+```ts
+for await (const chunk of model.stream('Tell me a joke')) {
+  process.stdout.write(chunk);
+}
+```
+
+## With Tools
+
+```ts
+const modelWithTools = model.bind({
+  tools: [{ name: 'get_weather', description: 'Get weather for a location' }],
+});
+
+const result = await modelWithTools.invoke('What is the weather in NYC?');
+console.log(result.tool_calls);
+```
+
+## Manual Message Conversion
+
+For more control, use the `toOrchestraMessages` helper:
+
+```ts
+import { Orchestra, toOrchestraMessages } from 'llm-orchestra';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+
+const prompt = ChatPromptTemplate.fromMessages([
+  ['system', 'You are a concise assistant.'],
+  ['human', '{question}'],
+]);
+
+const langchainMessages = await prompt.formatMessages({ question: 'What is AI?' });
+const orchestraMessages = toOrchestraMessages(langchainMessages);
+
+const response = await orchestra.complete({
+  model: 'claude-3-haiku',
+  messages: orchestraMessages,
+});
+```
+
+## Legacy: Prompt + Orchestra Example
 
 ```ts
 import { Orchestra, type Message } from 'llm-orchestra';

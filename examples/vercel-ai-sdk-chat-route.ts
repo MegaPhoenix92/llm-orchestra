@@ -1,10 +1,11 @@
 /**
- * Vercel AI SDK useChat integration example.
+ * Vercel AI SDK useChat integration example with metadata streaming.
  * Copy into app/api/chat/route.ts in a Next.js project.
  */
 
-import { Orchestra, type Message } from 'llm-orchestra';
-import { StreamingTextResponse, StreamData } from 'ai';
+import { Orchestra, toVercelStream, type Message, type CompletionMeta } from 'llm-orchestra';
+// In actual usage:
+// import { StreamingTextResponse, StreamData } from 'ai';
 
 export const runtime = 'nodejs';
 
@@ -52,29 +53,33 @@ export async function POST(req: Request) {
       : DEFAULT_MODEL;
 
   const stream = orchestra.stream({ model, messages });
-  const data = new StreamData();
-  const encoder = new TextEncoder();
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const chunk of stream) {
-          if (chunk.content) {
-            controller.enqueue(encoder.encode(chunk.content));
-          }
-          if (chunk.finishReason && chunk.meta) {
-            data.append({ meta: chunk.meta });
-          }
-        }
-        data.close();
-        controller.close();
-      } catch (error) {
-        data.append({ error: 'stream_failed' });
-        data.close();
-        controller.error(error);
-      }
+  // In actual usage with Vercel AI SDK:
+  // const data = new StreamData();
+  // const readable = toVercelStream(stream, { data });
+  // return new StreamingTextResponse(readable, {}, data);
+
+  // For this example, we'll use the onComplete callback to log metadata
+  let finalMeta: Partial<CompletionMeta> | undefined;
+
+  const readable = toVercelStream(stream, {
+    onComplete: (meta) => {
+      finalMeta = meta;
+      console.log('Stream completed with metadata:', {
+        provider: meta.provider,
+        model: meta.model,
+        tokens: meta.tokens,
+        cost: meta.cost,
+        latencyMs: meta.latencyMs,
+        traceId: meta.traceId,
+      });
+    },
+    onError: (error) => {
+      console.error('Stream error:', error.message);
     },
   });
 
-  return new StreamingTextResponse(readable, {}, data);
+  return new Response(readable, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }

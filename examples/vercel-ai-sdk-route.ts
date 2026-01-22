@@ -1,10 +1,10 @@
 /**
- * Vercel AI SDK integration example.
+ * Vercel AI SDK integration example using the helper module.
  * Copy into app/api/chat/route.ts in a Next.js project.
  */
 
-import { Orchestra, type Message } from 'llm-orchestra';
-import { StreamingTextResponse } from 'ai';
+import { Orchestra, toVercelStream, type Message } from 'llm-orchestra';
+// In actual usage: import { StreamingTextResponse } from 'ai';
 
 export const runtime = 'nodejs';
 
@@ -51,23 +51,14 @@ export async function POST(req: Request) {
       ? body.model.trim()
       : DEFAULT_MODEL;
 
+  // Use the helper to convert Orchestra stream to Vercel AI SDK format
   const stream = orchestra.stream({ model, messages });
-  const encoder = new TextEncoder();
+  const readable = toVercelStream(stream);
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const chunk of stream) {
-          if (chunk.content) {
-            controller.enqueue(encoder.encode(chunk.content));
-          }
-        }
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
+  // In actual usage:
+  // return new StreamingTextResponse(readable);
+
+  return new Response(readable, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
-
-  return new StreamingTextResponse(readable);
 }

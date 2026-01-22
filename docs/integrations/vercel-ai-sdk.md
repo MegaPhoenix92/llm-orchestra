@@ -1,8 +1,8 @@
 # Vercel AI SDK Integration
 
 This guide shows how to stream responses from LLM Orchestra through a Next.js
-API route using the Vercel AI SDK. The example keeps orchestration inside
-Orchestra while letting the AI SDK handle the streaming response.
+API route using the Vercel AI SDK. LLM Orchestra provides built-in helpers
+for seamless integration.
 
 ## Install
 
@@ -10,7 +10,44 @@ Orchestra while letting the AI SDK handle the streaming response.
 npm install ai llm-orchestra
 ```
 
-## Next.js Route Example (StreamingTextResponse)
+## Quick Start (Using Helpers)
+
+The simplest way to integrate is using the `toVercelStream` helper:
+
+```ts
+import { Orchestra, toVercelStream } from 'llm-orchestra';
+import { StreamingTextResponse } from 'ai';
+
+const orchestra = new Orchestra({
+  providers: { openai: { apiKey: process.env.OPENAI_API_KEY ?? '' } },
+});
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  const stream = orchestra.stream({ model: 'gpt-4o-mini', messages });
+  return new StreamingTextResponse(toVercelStream(stream));
+}
+```
+
+## With Metadata (StreamData)
+
+To pass metadata (tokens, cost, traceId) to the client:
+
+```ts
+import { Orchestra, toVercelStream } from 'llm-orchestra';
+import { StreamingTextResponse, StreamData } from 'ai';
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+  const stream = orchestra.stream({ model: 'gpt-4o-mini', messages });
+  const data = new StreamData();
+
+  const readable = toVercelStream(stream, { data });
+  return new StreamingTextResponse(readable, {}, data);
+}
+```
+
+## Next.js Route Example (Full)
 
 Create `app/api/chat/route.ts`:
 
