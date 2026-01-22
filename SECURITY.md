@@ -84,6 +84,14 @@ const orchestra = new Orchestra({
 Sensitive fields in the cloud dashboard can be encrypted at rest. See
 `docs/encryption-at-rest.md` for guarantees, threat model, and operational guidance.
 
+### Repository Security
+
+- [Dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph)
+  and [Dependabot alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts)
+  monitor dependency vulnerabilities
+- [Dependency Review](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review)
+  runs on pull requests to flag risky updates
+
 ## Acknowledgments
 
 We appreciate responsible disclosure and will acknowledge security researchers who report valid vulnerabilities.
