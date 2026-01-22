@@ -200,9 +200,9 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] Team management (v0.3.0)
 - [x] RBAC and audit logs (v0.3.0)
 
-### Phase 5: Security Hardening (2026+)
+### Phase 5: Security Hardening (2026+) ✅
 - [x] Security scanning (CodeQL, dependency scanning, secret detection)
-- [ ] Encryption at rest (self-hosted PostgreSQL)
+- [x] Encryption at rest (self-hosted PostgreSQL)
 - [x] Azure AD SSO/OIDC integration
 
 ## Contributing
