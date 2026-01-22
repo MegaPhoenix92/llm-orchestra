@@ -79,6 +79,11 @@ const orchestra = new Orchestra({
 - Do not expose the dashboard port to the public internet
 - Use proper authentication if deploying in shared environments
 
+### Encryption at Rest (Cloud)
+
+Sensitive fields in the cloud dashboard can be encrypted at rest. See
+`docs/encryption-at-rest.md` for guarantees, threat model, and operational guidance.
+
 ## Acknowledgments
 
 We appreciate responsible disclosure and will acknowledge security researchers who report valid vulnerabilities.
