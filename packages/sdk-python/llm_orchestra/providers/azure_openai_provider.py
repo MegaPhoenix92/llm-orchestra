@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .base import BaseProvider
 from ..types import CompletionRequest, CompletionResponse, Message, ToolCall, ToolDefinition, TokenUsage
+
+if TYPE_CHECKING:
+    import aiohttp as aiohttp_module
 
 DEFAULT_API_VERSION = "2024-02-15-preview"
 
@@ -18,6 +20,7 @@ class AzureOpenAIProvider(BaseProvider):
     """
 
     name = "azure-openai"
+    _aiohttp: "aiohttp_module"
 
     def __init__(self, credentials: Dict[str, Any]) -> None:
         super().__init__(credentials)
@@ -27,6 +30,16 @@ class AzureOpenAIProvider(BaseProvider):
         self.base_url = base_url.rstrip("/")
         self.api_version = credentials.get("apiVersion", DEFAULT_API_VERSION)
         self.api_key = credentials.get("apiKey", "")
+        self._aiohttp = self._import_aiohttp()
+
+    def _import_aiohttp(self) -> "aiohttp_module":
+        try:
+            import aiohttp
+            return aiohttp
+        except ImportError as exc:
+            raise ImportError(
+                "AzureOpenAIProvider requires aiohttp. Install with `pip install aiohttp`."
+            ) from exc
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         start_time = time.time()
@@ -94,15 +107,8 @@ class AzureOpenAIProvider(BaseProvider):
         }
 
     async def list_models(self) -> list[str]:
-        try:
-            import aiohttp
-        except ImportError as exc:
-            raise ImportError(
-                "AzureOpenAIProvider requires aiohttp. Install with `pip install aiohttp`."
-            ) from exc
-
         url = f"{self.base_url}/openai/models?api-version={self.api_version}"
-        async with aiohttp.ClientSession() as session:
+        async with self._aiohttp.ClientSession() as session:
             async with session.get(url, headers=self._build_headers()) as response:
                 if not response.ok:
                     error_text = await response.text()
@@ -115,15 +121,8 @@ class AzureOpenAIProvider(BaseProvider):
         return {"inputPer1k": 0, "outputPer1k": 0}
 
     async def _fetch_json(self, deployment: str, body: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            import aiohttp
-        except ImportError as exc:
-            raise ImportError(
-                "AzureOpenAIProvider requires aiohttp. Install with `pip install aiohttp`."
-            ) from exc
-
         url = f"{self.base_url}/openai/deployments/{deployment}/chat/completions?api-version={self.api_version}"
-        async with aiohttp.ClientSession() as session:
+        async with self._aiohttp.ClientSession() as session:
             async with session.post(url, headers=self._build_headers(), json=body) as response:
                 if not response.ok:
                     error_text = await response.text()

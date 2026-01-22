@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .base import BaseProvider
 from ..types import CompletionRequest, CompletionResponse, Message, TokenUsage
+
+if TYPE_CHECKING:
+    import aiohttp as aiohttp_module
 
 DEFAULT_BASE_URL = "https://api.cohere.ai/v1"
 
@@ -24,11 +27,22 @@ class CohereProvider(BaseProvider):
     """
 
     name = "cohere"
+    _aiohttp: "aiohttp_module"
 
     def __init__(self, credentials: Dict[str, Any]) -> None:
         super().__init__(credentials)
         self.base_url = credentials.get("baseUrl", DEFAULT_BASE_URL)
         self.api_key = credentials.get("apiKey", "")
+        self._aiohttp = self._import_aiohttp()
+
+    def _import_aiohttp(self) -> "aiohttp_module":
+        try:
+            import aiohttp
+            return aiohttp
+        except ImportError as exc:
+            raise ImportError(
+                "CohereProvider requires aiohttp. Install with `pip install aiohttp`."
+            ) from exc
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         start_time = time.time()
@@ -79,9 +93,9 @@ class CohereProvider(BaseProvider):
         response = await self._fetch_json("/models", None, method="GET")
         models = response.get("models", [])
         return [
-            model.get("name") or model.get("id")
+            model_id
             for model in models
-            if model.get("name") or model.get("id")
+            if (model_id := model.get("name") or model.get("id"))
         ]
 
     def get_model_cost(self, model: str) -> dict[str, float]:
@@ -93,15 +107,8 @@ class CohereProvider(BaseProvider):
     async def _fetch_json(
         self, path: str, body: Optional[Dict[str, Any]], method: str = "POST"
     ) -> Dict[str, Any]:
-        try:
-            import aiohttp
-        except ImportError as exc:
-            raise ImportError(
-                "CohereProvider requires aiohttp. Install with `pip install aiohttp`."
-            ) from exc
-
         url = f"{self.base_url}{path}"
-        async with aiohttp.ClientSession() as session:
+        async with self._aiohttp.ClientSession() as session:
             kwargs: Dict[str, Any] = {"headers": self._build_headers()}
             if body is not None:
                 kwargs["json"] = body
@@ -124,6 +131,7 @@ class CohereProvider(BaseProvider):
         """Convert messages to Cohere format.
 
         Returns: (message, chat_history, system_prompt)
+        Raises: ValueError if the last message is not from 'user'
         """
         system_prompt: Optional[str] = None
         for msg in messages:
@@ -132,26 +140,22 @@ class CohereProvider(BaseProvider):
                 break
 
         convo = [msg for msg in messages if msg.get("role") not in ("system", "tool")]
+
+        if not convo or convo[-1].get("role") != "user":
+            raise ValueError("Last message must be from 'user' for Cohere provider.")
+
+        message = convo[-1].get("content", "")
         chat_history: List[Dict[str, str]] = []
 
-        message = ""
-        for i, item in enumerate(convo):
-            is_last = i == len(convo) - 1
+        for item in convo[:-1]:
             role = item.get("role")
             content = item.get("content", "")
-
-            if is_last and role == "user":
-                message = content
-                continue
 
             if role in ("assistant", "user"):
                 chat_history.append({
                     "role": "CHATBOT" if role == "assistant" else "USER",
                     "message": content,
                 })
-
-        if not message and convo:
-            message = convo[-1].get("content", "")
 
         return message, chat_history, system_prompt
 

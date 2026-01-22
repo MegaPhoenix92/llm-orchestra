@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .base import BaseProvider
 from ..types import CompletionRequest, CompletionResponse, Message, ToolCall, ToolDefinition, TokenUsage
+
+if TYPE_CHECKING:
+    import aiohttp as aiohttp_module
 
 DEFAULT_BASE_URL = "https://api.mistral.ai/v1"
 
@@ -25,11 +28,22 @@ class MistralProvider(BaseProvider):
     """
 
     name = "mistral"
+    _aiohttp: "aiohttp_module"
 
     def __init__(self, credentials: Dict[str, Any]) -> None:
         super().__init__(credentials)
         self.base_url = credentials.get("baseUrl", DEFAULT_BASE_URL)
         self.api_key = credentials.get("apiKey", "")
+        self._aiohttp = self._import_aiohttp()
+
+    def _import_aiohttp(self) -> "aiohttp_module":
+        try:
+            import aiohttp
+            return aiohttp
+        except ImportError as exc:
+            raise ImportError(
+                "MistralProvider requires aiohttp. Install with `pip install aiohttp`."
+            ) from exc
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         start_time = time.time()
@@ -110,15 +124,8 @@ class MistralProvider(BaseProvider):
     async def _fetch_json(
         self, path: str, body: Optional[Dict[str, Any]], method: str = "POST"
     ) -> Dict[str, Any]:
-        try:
-            import aiohttp
-        except ImportError as exc:
-            raise ImportError(
-                "MistralProvider requires aiohttp. Install with `pip install aiohttp`."
-            ) from exc
-
         url = f"{self.base_url}{path}"
-        async with aiohttp.ClientSession() as session:
+        async with self._aiohttp.ClientSession() as session:
             kwargs: Dict[str, Any] = {"headers": self._build_headers()}
             if body is not None:
                 kwargs["json"] = body
