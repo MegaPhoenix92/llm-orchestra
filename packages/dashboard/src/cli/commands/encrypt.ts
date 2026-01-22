@@ -602,11 +602,21 @@ async function migrateAuditLogs(
               : log.userAgent
             : null;
 
+          // Handle metadata - decrypt if it's already encrypted to avoid double-encryption
+          let plainMetadata: Record<string, unknown> | null = null;
+          if (log.metadata) {
+            if (typeof log.metadata === 'string' && isEncrypted(log.metadata)) {
+              plainMetadata = decryptJson(log.metadata, config);
+            } else if (typeof log.metadata === 'object') {
+              plainMetadata = log.metadata as Record<string, unknown>;
+            }
+          }
+
           const encrypted = encryptAuditLog(
             {
               ip: plainIp,
               userAgent: plainUa,
-              metadata: log.metadata as Record<string, unknown> | null,
+              metadata: plainMetadata,
             },
             config
           );
