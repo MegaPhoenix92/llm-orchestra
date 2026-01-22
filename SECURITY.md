@@ -86,8 +86,11 @@ Sensitive fields in the cloud dashboard can be encrypted at rest. See
 
 ### Repository Security
 
-- Dependency graph and Dependabot alerts monitor dependency vulnerabilities
-- Dependency Review runs on pull requests to flag risky updates
+- [Dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph)
+  and [Dependabot alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts)
+  monitor dependency vulnerabilities
+- [Dependency Review](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review)
+  runs on pull requests to flag risky updates
 
 ## Acknowledgments
 
