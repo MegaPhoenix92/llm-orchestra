@@ -12,6 +12,9 @@ import * as schema from './schema.js';
 // Re-export all schema types for convenience
 export * from './schema.js';
 
+// Re-export encrypted field utilities
+export * from './encrypted-fields.js';
+
 /**
  * Database instance type with full schema
  */

@@ -60,15 +60,20 @@ export type NewProject = InferInsertModel<typeof projects>;
 /**
  * Users - Web dashboard users
  * Supports both password-based auth and SSO (Azure AD)
+ *
+ * Encryption at rest: email, name, and ssoId are encrypted when stored.
+ * The emailHash field provides a deterministic hash for email lookups.
  */
 export const users = pgTable('users', {
   id: text('id').primaryKey(), // prefix 'usr_'
-  email: text('email').unique().notNull(),
+  email: text('email').notNull(), // Encrypted at rest (unique constraint via emailHash)
+  /** SHA-256 hash of lowercase email for lookups when email is encrypted */
+  emailHash: text('email_hash').unique(),
   passwordHash: text('password_hash').notNull(), // Empty string for SSO-only users
-  name: text('name'),
+  name: text('name'), // Encrypted at rest
   /** SSO provider: 'azure' for Azure AD, null for password auth */
   ssoProvider: text('sso_provider'),
-  /** External SSO ID (e.g., Azure AD object ID) */
+  /** External SSO ID (e.g., Azure AD object ID) - Encrypted at rest */
   ssoId: text('sso_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

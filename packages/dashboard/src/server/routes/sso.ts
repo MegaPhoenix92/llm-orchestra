@@ -12,7 +12,8 @@ import { eq, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Database } from '../../db/index.js';
 import { users, organizations, orgMembers, sessions } from '../../db/schema.js';
-import { generateTokenPair } from '../../auth/index.js';
+import { generateTokenPair, type EncryptionConfig } from '../../auth/index.js';
+import { createEncryptionContext, hashEmailForLookup } from '../../db/encrypted-fields.js';
 import { generateSlug } from '../../utils/slug.js';
 import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 import crypto from 'crypto';
@@ -31,6 +32,8 @@ export interface SsoRoutesOptions {
   db: Database;
   jwtSecret: string;
   sso?: SsoConfig;
+  /** Optional encryption configuration for sensitive data at rest */
+  encryption?: EncryptionConfig;
 }
 
 /** 7 days in milliseconds for refresh token expiration */
@@ -83,8 +86,11 @@ function hashRefreshToken(token: string): string {
  * Create SSO routes for Azure AD authentication
  */
 export function createSsoRoutes(options: SsoRoutesOptions): Hono {
-  const { db, jwtSecret, sso } = options;
+  const { db, jwtSecret, sso, encryption } = options;
   const ssoRouter = new Hono();
+
+  // Create encryption context for sensitive data
+  const enc = createEncryptionContext(encryption);
 
   // Cache OIDC client to avoid repeated discovery
   let oidcClientPromise: Promise<OidcClientConfig> | null = null;
@@ -198,8 +204,11 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
         return c.redirect('/?error=sso_failed&message=Email+domain+not+allowed');
       }
 
-      // Find or create user
-      const existingUser = await db.select().from(users).where(eq(users.email, userInfo.email)).limit(1);
+      // Find or create user (use email hash for lookup when encryption is enabled)
+      const ssoEmailHash = enc.enabled ? hashEmailForLookup(userInfo.email) : null;
+      const existingUser = ssoEmailHash
+        ? await db.select().from(users).where(eq(users.emailHash, ssoEmailHash)).limit(1)
+        : await db.select().from(users).where(eq(users.email, userInfo.email)).limit(1);
 
       let userId: string;
       let isNewUser = false;
@@ -208,9 +217,11 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
         // Existing user - update SSO ID if not set
         userId = existingUser[0].id;
 
-        // Optionally update user name from SSO if changed
-        if (userInfo.name && userInfo.name !== existingUser[0].name) {
-          await db.update(users).set({ name: userInfo.name, updatedAt: new Date() }).where(eq(users.id, userId));
+        // Optionally update user name from SSO if changed (encrypt the name if needed)
+        const decryptedUser = enc.decryptUser(existingUser[0]);
+        if (userInfo.name && userInfo.name !== decryptedUser.name) {
+          const encryptedUpdate = enc.encryptUser({ name: userInfo.name, updatedAt: new Date() });
+          await db.update(users).set(encryptedUpdate).where(eq(users.id, userId));
         }
       } else {
         // New user - create account
@@ -218,9 +229,11 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
         userId = `usr_${nanoid(21)}`;
         const now = new Date();
 
-        await db.insert(users).values({
+        // Encrypt user data if encryption is enabled
+        const userData = enc.encryptUser({
           id: userId,
           email: userInfo.email,
+          emailHash: ssoEmailHash || undefined,
           passwordHash: '', // No password for SSO users
           name: userInfo.name || null,
           ssoProvider: 'azure',
@@ -228,6 +241,7 @@ export function createSsoRoutes(options: SsoRoutesOptions): Hono {
           createdAt: now,
           updatedAt: now,
         });
+        await db.insert(users).values(userData);
 
         // If default org is configured, add user to it
         if (sso?.defaultOrgId) {
