@@ -55,12 +55,13 @@ async function recordAlertTrigger(params: TriggerParams): Promise<AlertTrigger> 
   const { db, rule, projectId, value, threshold, windowMinutes, minRequests, message, metadata, now } =
     params;
   const eventId = `ale_${nanoid(21)}`;
+  const ruleType = rule.type as AlertRuleType;
 
   await db.insert(alertEvents).values({
     id: eventId,
     ruleId: rule.id,
     projectId,
-    type: rule.type,
+    type: ruleType,
     status: 'triggered',
     value: String(value),
     threshold: String(threshold),
@@ -78,7 +79,7 @@ async function recordAlertTrigger(params: TriggerParams): Promise<AlertTrigger> 
     eventId,
     ruleId: rule.id,
     projectId,
-    type: rule.type as AlertRuleType,
+    type: ruleType,
     name: rule.name,
     value,
     threshold,
