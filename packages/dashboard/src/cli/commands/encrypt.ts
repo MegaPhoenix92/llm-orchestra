@@ -1040,12 +1040,10 @@ async function validateAuditLogs(
 }
 
 /**
- * Validate key rotation options
+ * Validate key rotation options and return config for new key
+ * The returned config includes the old key in previousKeys for decryption
  */
-function validateRotateOptions(options: RotateOptions): {
-  oldConfig: EncryptionConfig;
-  newConfig: EncryptionConfig;
-} {
+function validateRotateOptions(options: RotateOptions): EncryptionConfig {
   if (!options.databaseUrl) {
     console.error(chalk.red('Error:'), 'Database URL is required');
     console.log(chalk.gray('Use --database-url <url> or set DATABASE_URL environment variable'));
@@ -1077,20 +1075,12 @@ function validateRotateOptions(options: RotateOptions): {
   const oldKeyId = options.oldKeyId || 'primary';
   const newKeyId = options.newKeyId || 'rotated';
 
-  // Config for decryption with old key
-  const oldConfig: EncryptionConfig = {
-    masterKey: options.oldKey,
-    keyId: oldKeyId,
-  };
-
-  // Config for encryption with new key (and decryption of old)
-  const newConfig: EncryptionConfig = {
+  // Config for encryption with new key (includes old key for decryption)
+  return {
     masterKey: options.newKey,
     keyId: newKeyId,
     previousKeys: [{ keyId: oldKeyId, masterKey: options.oldKey }],
   };
-
-  return { oldConfig, newConfig };
 }
 
 /**
@@ -1103,7 +1093,7 @@ export async function rotateCommand(options: RotateOptions): Promise<void> {
     console.log(chalk.yellow('DRY RUN MODE - No changes will be made\n'));
   }
 
-  const { oldConfig, newConfig } = validateRotateOptions(options);
+  const newConfig = validateRotateOptions(options);
   const db = connectDatabase(options.databaseUrl);
   const batchSize = options.batchSize || 100;
 
@@ -1116,21 +1106,21 @@ export async function rotateCommand(options: RotateOptions): Promise<void> {
 
   // Rotate users
   console.log(chalk.bold('Rotating users...'));
-  const userResult = await rotateUsers(db, oldConfig, newConfig, batchSize, options.dryRun, options.verbose);
+  const userResult = await rotateUsers(db, newConfig, batchSize, options.dryRun, options.verbose);
   totalRotated += userResult.rotated;
   totalSkipped += userResult.skipped;
   totalErrors += userResult.errors;
 
   // Rotate invitations
   console.log(chalk.bold('\nRotating invitations...'));
-  const invResult = await rotateInvitations(db, oldConfig, newConfig, batchSize, options.dryRun, options.verbose);
+  const invResult = await rotateInvitations(db, newConfig, batchSize, options.dryRun, options.verbose);
   totalRotated += invResult.rotated;
   totalSkipped += invResult.skipped;
   totalErrors += invResult.errors;
 
   // Rotate audit logs
   console.log(chalk.bold('\nRotating audit logs...'));
-  const auditResult = await rotateAuditLogs(db, oldConfig, newConfig, batchSize, options.dryRun, options.verbose);
+  const auditResult = await rotateAuditLogs(db, newConfig, batchSize, options.dryRun, options.verbose);
   totalRotated += auditResult.rotated;
   totalSkipped += auditResult.skipped;
   totalErrors += auditResult.errors;
@@ -1161,8 +1151,7 @@ export async function rotateCommand(options: RotateOptions): Promise<void> {
  */
 async function rotateUsers(
   db: Database,
-  oldConfig: EncryptionConfig,
-  newConfig: EncryptionConfig,
+  config: EncryptionConfig,
   batchSize: number,
   dryRun?: boolean,
   verbose?: boolean
@@ -1173,7 +1162,7 @@ async function rotateUsers(
   let lastId: string | null = null;
   let processed = 0;
 
-  const newKeyId = newConfig.keyId || 'rotated';
+  const newKeyId = config.keyId || 'rotated';
 
   while (true) {
     let query = db.select().from(users);
@@ -1202,24 +1191,23 @@ async function rotateUsers(
         }
 
         if (!dryRun) {
-          // Decrypt with old config (which can handle both old and new keys)
-          const decryptConfig = newConfig; // newConfig has previousKeys for old key
-          const plainEmail = isEncrypted(user.email) ? decrypt(user.email, decryptConfig) : user.email;
+          // Decrypt (config has previousKeys for old key, and decrypt tries all keys for v1)
+          const plainEmail = isEncrypted(user.email) ? decrypt(user.email, config) : user.email;
           const plainName = user.name
             ? isEncrypted(user.name)
-              ? decrypt(user.name, decryptConfig)
+              ? decrypt(user.name, config)
               : user.name
             : null;
           const plainSsoId = user.ssoId
             ? isEncrypted(user.ssoId)
-              ? decrypt(user.ssoId, decryptConfig)
+              ? decrypt(user.ssoId, config)
               : user.ssoId
             : null;
 
           // Re-encrypt with new key
-          const newEmail = encrypt(plainEmail, newConfig);
-          const newName = plainName ? encrypt(plainName, newConfig) : null;
-          const newSsoId = plainSsoId ? encrypt(plainSsoId, newConfig) : null;
+          const newEmail = encrypt(plainEmail, config);
+          const newName = plainName ? encrypt(plainName, config) : null;
+          const newSsoId = plainSsoId ? encrypt(plainSsoId, config) : null;
 
           await db
             .update(users)
@@ -1255,8 +1243,7 @@ async function rotateUsers(
  */
 async function rotateInvitations(
   db: Database,
-  oldConfig: EncryptionConfig,
-  newConfig: EncryptionConfig,
+  config: EncryptionConfig,
   batchSize: number,
   dryRun?: boolean,
   verbose?: boolean
@@ -1267,7 +1254,7 @@ async function rotateInvitations(
   let lastId: string | null = null;
   let processed = 0;
 
-  const newKeyId = newConfig.keyId || 'rotated';
+  const newKeyId = config.keyId || 'rotated';
 
   while (true) {
     let query = db.select().from(invitations);
@@ -1294,16 +1281,15 @@ async function rotateInvitations(
         }
 
         if (!dryRun) {
-          const decryptConfig = newConfig;
           const plainEmail = isEncrypted(invitation.email)
-            ? decrypt(invitation.email, decryptConfig)
+            ? decrypt(invitation.email, config)
             : invitation.email;
           const plainToken = isEncrypted(invitation.token)
-            ? decrypt(invitation.token, decryptConfig)
+            ? decrypt(invitation.token, config)
             : invitation.token;
 
-          const newEmail = encrypt(plainEmail, newConfig);
-          const newToken = encrypt(plainToken, newConfig);
+          const newEmail = encrypt(plainEmail, config);
+          const newToken = encrypt(plainToken, config);
 
           await db
             .update(invitations)
@@ -1339,8 +1325,7 @@ async function rotateInvitations(
  */
 async function rotateAuditLogs(
   db: Database,
-  oldConfig: EncryptionConfig,
-  newConfig: EncryptionConfig,
+  config: EncryptionConfig,
   batchSize: number,
   dryRun?: boolean,
   verbose?: boolean
@@ -1351,7 +1336,7 @@ async function rotateAuditLogs(
   let lastId: string | null = null;
   let processed = 0;
 
-  const newKeyId = newConfig.keyId || 'rotated';
+  const newKeyId = config.keyId || 'rotated';
 
   while (true) {
     let query = db.select().from(auditLogs);
@@ -1382,30 +1367,28 @@ async function rotateAuditLogs(
         }
 
         if (!dryRun) {
-          const decryptConfig = newConfig;
-
           // Handle IP
           let newIp: string | null = null;
           if (log.ip) {
-            const plainIp = isEncrypted(log.ip) ? decrypt(log.ip, decryptConfig) : log.ip;
-            newIp = encrypt(plainIp, newConfig);
+            const plainIp = isEncrypted(log.ip) ? decrypt(log.ip, config) : log.ip;
+            newIp = encrypt(plainIp, config);
           }
 
           // Handle user agent
           let newUa: string | null = null;
           if (log.userAgent) {
             const plainUa = isEncrypted(log.userAgent)
-              ? decrypt(log.userAgent, decryptConfig)
+              ? decrypt(log.userAgent, config)
               : log.userAgent;
-            newUa = encrypt(plainUa, newConfig);
+            newUa = encrypt(plainUa, config);
           }
 
           // Handle metadata
           let newMetadata: string | Record<string, unknown> | null = log.metadata;
           if (log.metadata && typeof log.metadata === 'string' && isEncrypted(log.metadata)) {
-            const plainMetadata = decryptJson(log.metadata, decryptConfig);
+            const plainMetadata = decryptJson(log.metadata, config);
             if (plainMetadata) {
-              newMetadata = encrypt(JSON.stringify(plainMetadata), newConfig);
+              newMetadata = encrypt(JSON.stringify(plainMetadata), config);
             }
           }
 

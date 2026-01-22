@@ -141,11 +141,33 @@ function findKeyById(keyId: string, config: EncryptionConfig): string | null {
 }
 
 /**
+ * Attempt to decrypt data with a specific key
+ */
+function tryDecrypt(
+  encrypted: Buffer,
+  salt: Buffer,
+  iv: Buffer,
+  authTag: Buffer,
+  masterKey: string
+): string | null {
+  try {
+    const key = deriveKey(masterKey, salt);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    // Decryption failed with this key
+    return null;
+  }
+}
+
+/**
  * Decrypt an encrypted string
  *
  * Supports both v1 and v2 formats:
- * - v1: <salt>:<iv>:<authTag>:<ciphertext> (uses current key)
- * - v2: <keyId>:<salt>:<iv>:<authTag>:<ciphertext> (uses key by ID)
+ * - v1: v1:<salt>:<iv>:<authTag>:<ciphertext> (tries all keys)
+ * - v2: v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext> (uses key by ID)
  *
  * @param ciphertext - The encrypted string
  * @param config - Encryption configuration with master key and optional previous keys
@@ -167,52 +189,65 @@ export function decrypt(ciphertext: string, config: EncryptionConfig): string {
   const version = versionMatch[1];
   const parts = ciphertext.split(':');
 
-  let masterKey: string;
-  let saltB64: string;
-  let ivB64: string;
-  let authTagB64: string;
-  let encryptedB64: string;
-
   if (version === VERSION_V1) {
     // v1 format: v1:<salt>:<iv>:<authTag>:<ciphertext>
     if (parts.length !== 5) {
       throw new Error('Invalid encrypted data format (v1)');
     }
-    [, saltB64, ivB64, authTagB64, encryptedB64] = parts;
-    masterKey = config.masterKey;
+    const [, saltB64, ivB64, authTagB64, encryptedB64] = parts;
+
+    // Decode components
+    const salt = Buffer.from(saltB64, 'base64');
+    const iv = Buffer.from(ivB64, 'base64');
+    const authTag = Buffer.from(authTagB64, 'base64');
+    const encrypted = Buffer.from(encryptedB64, 'base64');
+
+    // v1 format has no key ID, so we must try all available keys
+    const keysToTry = [
+      config.masterKey,
+      ...(config.previousKeys?.map((k) => k.masterKey) ?? []),
+    ];
+
+    for (const masterKey of keysToTry) {
+      const result = tryDecrypt(encrypted, salt, iv, authTag, masterKey);
+      if (result !== null) {
+        return result;
+      }
+    }
+
+    throw new Error('Failed to decrypt v1 data with any available key');
   } else if (version === VERSION_V2) {
     // v2 format: v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext>
     if (parts.length !== 6) {
       throw new Error('Invalid encrypted data format (v2)');
     }
     const keyId = parts[1];
-    [, , saltB64, ivB64, authTagB64, encryptedB64] = parts;
+    const [, , saltB64, ivB64, authTagB64, encryptedB64] = parts;
 
     // Find the key by ID
-    const foundKey = findKeyById(keyId, config);
-    if (!foundKey) {
+    const masterKey = findKeyById(keyId, config);
+    if (!masterKey) {
       throw new Error(`Unknown encryption key ID: ${keyId}`);
     }
-    masterKey = foundKey;
+
+    // Decode components
+    const salt = Buffer.from(saltB64, 'base64');
+    const iv = Buffer.from(ivB64, 'base64');
+    const authTag = Buffer.from(authTagB64, 'base64');
+    const encrypted = Buffer.from(encryptedB64, 'base64');
+
+    // Derive key from master key and salt
+    const key = deriveKey(masterKey, salt);
+
+    // Create decipher and decrypt
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
   } else {
     throw new Error(`Unsupported encryption version: ${version}`);
   }
-
-  // Decode components
-  const salt = Buffer.from(saltB64, 'base64');
-  const iv = Buffer.from(ivB64, 'base64');
-  const authTag = Buffer.from(authTagB64, 'base64');
-  const encrypted = Buffer.from(encryptedB64, 'base64');
-
-  // Derive key from master key and salt
-  const key = deriveKey(masterKey, salt);
-
-  // Create decipher and decrypt
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString('utf8');
 }
 
 /**

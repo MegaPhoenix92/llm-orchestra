@@ -293,6 +293,40 @@ describe('Encryption Core', () => {
       expect(needsReEncryption(v1Encrypted, 'primary')).toBe(true);
     });
 
+    it('should_decrypt_v1Data_when_keyInPreviousKeys', () => {
+      // Create a v1-style encrypted value using the primary key
+      // We need to create actual v1 format data encrypted with primary key
+      // Since encrypt() now produces v2 format, we'll manually construct a v1 value
+
+      // First encrypt with primary key to get a working encrypted value
+      const v2Encrypted = encrypt('v1 secret data', PRIMARY_CONFIG);
+
+      // Convert v2 to v1 format by removing the keyId component
+      // v2: v2:keyId:salt:iv:authTag:ciphertext
+      // v1: v1:salt:iv:authTag:ciphertext
+      const parts = v2Encrypted.split(':');
+      const v1Encrypted = `v1:${parts[2]}:${parts[3]}:${parts[4]}:${parts[5]}`;
+
+      // Now try to decrypt with ROTATED_CONFIG (where primary key is new, and old key is in previousKeys)
+      // This should work because decrypt tries all keys for v1 format
+      const decrypted = decrypt(v1Encrypted, ROTATED_CONFIG);
+      expect(decrypted).toBe('v1 secret data');
+    });
+
+    it('should_throw_when_v1DataCannotBeDecrypted', () => {
+      // Create v1 data with an unknown key
+      const unknownKeyConfig: EncryptionConfig = {
+        masterKey: 'unknown-key-that-is-at-least-32-characters-long',
+        keyId: 'unknown',
+      };
+      const v2Encrypted = encrypt('secret', unknownKeyConfig);
+      const parts = v2Encrypted.split(':');
+      const v1Encrypted = `v1:${parts[2]}:${parts[3]}:${parts[4]}:${parts[5]}`;
+
+      // Try to decrypt with a config that doesn't have this key
+      expect(() => decrypt(v1Encrypted, PRIMARY_CONFIG)).toThrow('Failed to decrypt v1 data');
+    });
+
     it('should_reEncrypt_when_rotatingKeys', () => {
       // Encrypt with primary key
       const originalEncrypted = encrypt('secret', PRIMARY_CONFIG);
