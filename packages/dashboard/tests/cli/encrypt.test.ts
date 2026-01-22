@@ -14,20 +14,51 @@ import {
   validateCommand,
   type EncryptOptions,
 } from '../../src/cli/commands/encrypt.js';
+import { encrypt, encryptJson } from '../../src/auth/encryption.js';
 
 // Mock the database module
 vi.mock('../../src/db/index.js', () => {
   const mockDb = {
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        limit: vi.fn(() => ({
-          offset: vi.fn(() => Promise.resolve([])),
-        })),
-      })),
-    })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve()),
+    __batches: {
+      users: [] as unknown[][],
+      invitations: [] as unknown[][],
+      auditLogs: [] as unknown[][],
+    },
+    __updateCalls: [] as Array<{ table: string; values: Record<string, unknown> }>,
+    select: vi.fn(() => {
+      const chain: {
+        __table: { __tableName?: string } | null;
+        from: (table: { __tableName?: string }) => typeof chain;
+        where: () => typeof chain;
+        orderBy: () => typeof chain;
+        limit: () => Promise<unknown[]>;
+      } = {
+        __table: null,
+        from: (table) => {
+          chain.__table = table;
+          return chain;
+        },
+        where: () => chain,
+        orderBy: () => chain,
+        limit: () => {
+          const tableName = chain.__table?.__tableName ?? 'unknown';
+          const batches = (mockDb.__batches[tableName] || []) as unknown[][];
+          const nextBatch = batches.shift() ?? [];
+          return Promise.resolve(nextBatch);
+        },
+      };
+
+      return chain;
+    }),
+    update: vi.fn((table: { __tableName?: string }) => ({
+      set: vi.fn((values: Record<string, unknown>) => ({
+        where: vi.fn(() => {
+          mockDb.__updateCalls.push({
+            table: table?.__tableName ?? 'unknown',
+            values,
+          });
+          return Promise.resolve();
+        }),
       })),
     })),
     execute: vi.fn(() =>
@@ -36,10 +67,18 @@ vi.mock('../../src/db/index.js', () => {
   };
 
   return {
+    __mockDb: mockDb,
     createDatabase: vi.fn(() => ({ db: mockDb, pool: { end: vi.fn() } })),
-    users: { id: 'id', email: 'email', name: 'name', ssoId: 'sso_id', emailHash: 'email_hash' },
-    invitations: { id: 'id', email: 'email', token: 'token' },
-    auditLogs: { id: 'id', ip: 'ip', userAgent: 'user_agent', metadata: 'metadata' },
+    users: {
+      id: 'id',
+      email: 'email',
+      name: 'name',
+      ssoId: 'sso_id',
+      emailHash: 'email_hash',
+      __tableName: 'users',
+    },
+    invitations: { id: 'id', email: 'email', token: 'token', __tableName: 'invitations' },
+    auditLogs: { id: 'id', ip: 'ip', userAgent: 'user_agent', metadata: 'metadata', __tableName: 'auditLogs' },
   };
 });
 
@@ -50,6 +89,14 @@ const TEST_OPTIONS: EncryptOptions = {
   dryRun: false,
   verbose: false,
 };
+const ENCRYPTION_CONFIG = { masterKey: TEST_OPTIONS.masterKey };
+let mockDb: {
+  __batches: Record<string, unknown[][]>;
+  __updateCalls: Array<{ table: string; values: Record<string, unknown> }>;
+  select: MockInstance;
+  update: MockInstance;
+  execute: MockInstance;
+};
 
 describe('Encryption CLI Commands', () => {
   let consoleLogSpy: MockInstance;
@@ -57,7 +104,17 @@ describe('Encryption CLI Commands', () => {
   let processExitSpy: MockInstance;
   let stdoutWriteSpy: MockInstance;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const dbModule = (await import('../../src/db/index.js')) as unknown as {
+      __mockDb: typeof mockDb;
+    };
+    mockDb = dbModule.__mockDb;
+    mockDb.__batches = { users: [], invitations: [], auditLogs: [] };
+    mockDb.__updateCalls = [];
+    mockDb.select.mockClear();
+    mockDb.update.mockClear();
+    mockDb.execute.mockClear();
+
     // Setup fresh spies for each test
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -136,6 +193,82 @@ describe('Encryption CLI Commands', () => {
       expect(logCalls).toContain('Migration Summary');
     });
 
+    it('should_migrateAndSkipRecords_when_mixedData', async () => {
+      const encryptedEmail = encrypt('encrypted@example.com', ENCRYPTION_CONFIG);
+      const encryptedName = encrypt('Encrypted User', ENCRYPTION_CONFIG);
+      const encryptedToken = encrypt('token-value', ENCRYPTION_CONFIG);
+      const encryptedIp = encrypt('10.0.0.1', ENCRYPTION_CONFIG);
+      const encryptedUa = encrypt('ua-encrypted', ENCRYPTION_CONFIG);
+      const encryptedMetadata = encryptJson({ foo: 'bar' }, ENCRYPTION_CONFIG);
+
+      mockDb.__batches.users = [
+        [
+          {
+            id: 'usr_1',
+            email: 'plain@example.com',
+            name: 'Plain User',
+            ssoId: null,
+            emailHash: null,
+          },
+          {
+            id: 'usr_2',
+            email: encryptedEmail,
+            name: encryptedName,
+            ssoId: null,
+            emailHash: 'hash_value',
+          },
+          {
+            id: 'usr_3',
+            email: encryptedEmail,
+            name: null,
+            ssoId: null,
+            emailHash: null,
+          },
+        ],
+        [],
+      ];
+
+      mockDb.__batches.invitations = [
+        [
+          { id: 'inv_1', email: 'invite@example.com', token: 'token-plain' },
+          { id: 'inv_2', email: encryptedEmail, token: encryptedToken },
+        ],
+        [],
+      ];
+
+      mockDb.__batches.auditLogs = [
+        [
+          {
+            id: 'aud_1',
+            ip: '127.0.0.1',
+            userAgent: 'ua',
+            metadata: { foo: 'bar' },
+          },
+          {
+            id: 'aud_2',
+            ip: encryptedIp,
+            userAgent: encryptedUa,
+            metadata: encryptedMetadata,
+          },
+        ],
+        [],
+      ];
+
+      await migrateCommand(TEST_OPTIONS);
+
+      const updatesByTable = mockDb.__updateCalls.reduce(
+        (acc: Record<string, number>, call) => {
+          acc[call.table] = (acc[call.table] || 0) + 1;
+          return acc;
+        },
+        {}
+      );
+
+      expect(updatesByTable.users).toBe(2);
+      expect(updatesByTable.invitations).toBe(1);
+      expect(updatesByTable.auditLogs).toBe(1);
+    });
+
     it('should_showDryRunNotice_when_dryRunEnabled', async () => {
       const options: EncryptOptions = {
         ...TEST_OPTIONS,
@@ -158,6 +291,87 @@ describe('Encryption CLI Commands', () => {
       expect(logCalls).toContain('Encryption Validation');
       expect(logCalls).toContain('Validation Summary');
     });
+
+    it('should_countEncryptedAndUnencryptedFields_when_mixedData', async () => {
+      const encryptedEmail = encrypt('encrypted@example.com', ENCRYPTION_CONFIG);
+      const encryptedName = encrypt('Encrypted User', ENCRYPTION_CONFIG);
+      const encryptedToken = encrypt('token-value', ENCRYPTION_CONFIG);
+      const encryptedIp = encrypt('10.0.0.1', ENCRYPTION_CONFIG);
+      const encryptedUa = encrypt('ua-encrypted', ENCRYPTION_CONFIG);
+      const encryptedMetadata = encryptJson({ foo: 'bar' }, ENCRYPTION_CONFIG);
+
+      mockDb.__batches.users = [
+        [
+          {
+            id: 'usr_1',
+            email: encryptedEmail,
+            name: encryptedName,
+            ssoId: null,
+          },
+          {
+            id: 'usr_2',
+            email: 'plain@example.com',
+            name: null,
+            ssoId: null,
+          },
+        ],
+        [],
+      ];
+
+      mockDb.__batches.invitations = [
+        [
+          { id: 'inv_1', email: encryptedEmail, token: encryptedToken },
+          { id: 'inv_2', email: 'invite@example.com', token: 'token-plain' },
+        ],
+        [],
+      ];
+
+      mockDb.__batches.auditLogs = [
+        [
+          {
+            id: 'aud_1',
+            ip: encryptedIp,
+            userAgent: encryptedUa,
+            metadata: encryptedMetadata,
+          },
+          {
+            id: 'aud_2',
+            ip: null,
+            userAgent: null,
+            metadata: { plain: true },
+          },
+        ],
+        [],
+      ];
+
+      await validateCommand(TEST_OPTIONS);
+
+      const logCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(logCalls).toContain('Valid (encrypted & decryptable): 7');
+      expect(logCalls).toContain('Unencrypted: 4');
+      expect(processExitSpy).not.toHaveBeenCalled();
+    });
+
+    it('should_exitWithError_when_invalidEncryptedDataDetected', async () => {
+      mockDb.__batches.users = [
+        [
+          {
+            id: 'usr_1',
+            email: 'v1:bad:bad:bad:bad',
+            name: null,
+            ssoId: null,
+          },
+        ],
+        [],
+      ];
+      mockDb.__batches.invitations = [[]];
+      mockDb.__batches.auditLogs = [[]];
+
+      await expect(validateCommand(TEST_OPTIONS)).rejects.toThrow('process.exit(1)');
+
+      const logCalls = consoleLogSpy.mock.calls.flat().join(' ');
+      expect(logCalls).toContain('Invalid (cannot decrypt)');
+    });
   });
 });
 
@@ -167,7 +381,17 @@ describe('Encryption CLI Integration', () => {
   let processExitSpy: MockInstance;
   let stdoutWriteSpy: MockInstance;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const dbModule = (await import('../../src/db/index.js')) as unknown as {
+      __mockDb: typeof mockDb;
+    };
+    mockDb = dbModule.__mockDb;
+    mockDb.__batches = { users: [], invitations: [], auditLogs: [] };
+    mockDb.__updateCalls = [];
+    mockDb.select.mockClear();
+    mockDb.update.mockClear();
+    mockDb.execute.mockClear();
+
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     processExitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {

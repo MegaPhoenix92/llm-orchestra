@@ -11,20 +11,14 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { createDatabase, users, invitations, auditLogs, type Database } from '../../db/index.js';
 import {
-  encrypt,
   decrypt,
+  decryptJson,
   isEncrypted,
   validateEncryptionConfig,
   type EncryptionConfig,
 } from '../../auth/encryption.js';
-import {
-  encryptUser,
-  decryptUser,
-  encryptInvitation,
-  encryptAuditLog,
-  hashEmailForLookup,
-} from '../../db/encrypted-fields.js';
-import { eq, isNull, sql } from 'drizzle-orm';
+import { encryptUser, encryptInvitation, encryptAuditLog, hashEmailForLookup } from '../../db/encrypted-fields.js';
+import { eq, sql, gt, asc } from 'drizzle-orm';
 
 /**
  * Options for encryption commands
@@ -401,15 +395,17 @@ async function migrateUsers(
   let migrated = 0;
   let skipped = 0;
   let errors = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let processed = 0;
 
   while (true) {
     // Fetch batch of users
-    const batch = await db
-      .select()
-      .from(users)
-      .limit(batchSize)
-      .offset(offset);
+    let query = db.select().from(users);
+    if (lastId) {
+      query = query.where(gt(users.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -472,11 +468,12 @@ async function migrateUsers(
       }
     }
 
-    offset += batchSize;
-    process.stdout.write(chalk.gray(`  Processed ${offset} records...\r`));
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
   }
 
-  console.log(chalk.gray(`  Processed ${offset} total records`));
+  console.log(chalk.gray(`  Processed ${processed} total records`));
   return { migrated, skipped, errors };
 }
 
@@ -493,14 +490,16 @@ async function migrateInvitations(
   let migrated = 0;
   let skipped = 0;
   let errors = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let processed = 0;
 
   while (true) {
-    const batch = await db
-      .select()
-      .from(invitations)
-      .limit(batchSize)
-      .offset(offset);
+    let query = db.select().from(invitations);
+    if (lastId) {
+      query = query.where(gt(invitations.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -544,11 +543,12 @@ async function migrateInvitations(
       }
     }
 
-    offset += batchSize;
-    process.stdout.write(chalk.gray(`  Processed ${offset} records...\r`));
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
   }
 
-  console.log(chalk.gray(`  Processed ${offset} total records`));
+  console.log(chalk.gray(`  Processed ${processed} total records`));
   return { migrated, skipped, errors };
 }
 
@@ -565,14 +565,16 @@ async function migrateAuditLogs(
   let migrated = 0;
   let skipped = 0;
   let errors = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let processed = 0;
 
   while (true) {
-    const batch = await db
-      .select()
-      .from(auditLogs)
-      .limit(batchSize)
-      .offset(offset);
+    let query = db.select().from(auditLogs);
+    if (lastId) {
+      query = query.where(gt(auditLogs.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -628,11 +630,12 @@ async function migrateAuditLogs(
       }
     }
 
-    offset += batchSize;
-    process.stdout.write(chalk.gray(`  Processed ${offset} records...\r`));
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
   }
 
-  console.log(chalk.gray(`  Processed ${offset} total records`));
+  console.log(chalk.gray(`  Processed ${processed} total records`));
   return { migrated, skipped, errors };
 }
 
@@ -708,10 +711,15 @@ async function validateUsers(
   let valid = 0;
   let invalid = 0;
   let unencrypted = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let checked = 0;
 
   while (true) {
-    const batch = await db.select().from(users).limit(batchSize).offset(offset);
+    let query = db.select().from(users);
+    if (lastId) {
+      query = query.where(gt(users.id, lastId));
+    }
+    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
     if (batch.length === 0) break;
 
     for (const user of batch) {
@@ -774,10 +782,11 @@ async function validateUsers(
       }
     }
 
-    offset += batchSize;
+    lastId = batch[batch.length - 1].id;
+    checked += batch.length;
   }
 
-  console.log(chalk.gray(`  Checked ${offset} users`));
+  console.log(chalk.gray(`  Checked ${checked} users`));
   return { valid, invalid, unencrypted };
 }
 
@@ -793,10 +802,15 @@ async function validateInvitations(
   let valid = 0;
   let invalid = 0;
   let unencrypted = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let checked = 0;
 
   while (true) {
-    const batch = await db.select().from(invitations).limit(batchSize).offset(offset);
+    let query = db.select().from(invitations);
+    if (lastId) {
+      query = query.where(gt(invitations.id, lastId));
+    }
+    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
     if (batch.length === 0) break;
 
     for (const invitation of batch) {
@@ -837,10 +851,11 @@ async function validateInvitations(
       }
     }
 
-    offset += batchSize;
+    lastId = batch[batch.length - 1].id;
+    checked += batch.length;
   }
 
-  console.log(chalk.gray(`  Checked ${offset} invitations`));
+  console.log(chalk.gray(`  Checked ${checked} invitations`));
   return { valid, invalid, unencrypted };
 }
 
@@ -856,10 +871,15 @@ async function validateAuditLogs(
   let valid = 0;
   let invalid = 0;
   let unencrypted = 0;
-  let offset = 0;
+  let lastId: string | null = null;
+  let checked = 0;
 
   while (true) {
-    const batch = await db.select().from(auditLogs).limit(batchSize).offset(offset);
+    let query = db.select().from(auditLogs);
+    if (lastId) {
+      query = query.where(gt(auditLogs.id, lastId));
+    }
+    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
     if (batch.length === 0) break;
 
     for (const log of batch) {
@@ -902,11 +922,39 @@ async function validateAuditLogs(
           }
         }
       }
+
+      // Check metadata
+      if (log.metadata !== null && log.metadata !== undefined) {
+        if (typeof log.metadata === 'string') {
+          if (isEncrypted(log.metadata)) {
+            try {
+              decryptJson(log.metadata, config);
+              valid++;
+            } catch {
+              invalid++;
+              if (verbose) {
+                console.log(chalk.red(`  Invalid: audit log ${log.id} metadata cannot be decrypted`));
+              }
+            }
+          } else {
+            unencrypted++;
+            if (verbose) {
+              console.log(chalk.yellow(`  Unencrypted: audit log ${log.id} metadata`));
+            }
+          }
+        } else {
+          unencrypted++;
+          if (verbose) {
+            console.log(chalk.yellow(`  Unencrypted: audit log ${log.id} metadata`));
+          }
+        }
+      }
     }
 
-    offset += batchSize;
+    lastId = batch[batch.length - 1].id;
+    checked += batch.length;
   }
 
-  console.log(chalk.gray(`  Checked ${offset} audit logs`));
+  console.log(chalk.gray(`  Checked ${checked} audit logs`));
   return { valid, invalid, unencrypted };
 }
