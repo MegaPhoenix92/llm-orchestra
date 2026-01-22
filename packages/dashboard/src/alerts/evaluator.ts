@@ -39,7 +39,7 @@ interface TriggerParams {
   rule: {
     id: string;
     name: string;
-    type: string;
+    type: AlertRuleType;
   };
   projectId: string;
   value: number;
@@ -78,7 +78,7 @@ async function recordAlertTrigger(params: TriggerParams): Promise<AlertTrigger> 
     eventId,
     ruleId: rule.id,
     projectId,
-    type: rule.type as AlertRuleType,
+    type: rule.type,
     name: rule.name,
     value,
     threshold,

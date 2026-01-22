@@ -23,6 +23,10 @@ import {
 import { encryptUser, encryptInvitation, encryptAuditLog, hashEmailForLookup } from '../../db/encrypted-fields.js';
 import { eq, sql, gt, asc } from 'drizzle-orm';
 
+type UserRow = typeof users.$inferSelect;
+type InvitationRow = typeof invitations.$inferSelect;
+type AuditLogRow = typeof auditLogs.$inferSelect;
+
 /**
  * Options for encryption commands
  */
@@ -470,12 +474,12 @@ async function migrateUsers(
 
   while (true) {
     // Fetch batch of users
-    let query = db.select().from(users);
-    if (lastId) {
-      query = query.where(gt(users.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
+    const baseQuery = db.select().from(users);
+    const batch: UserRow[] = await (lastId
+      ? baseQuery.where(gt(users.id, lastId))
+      : baseQuery)
+      .orderBy(asc(users.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -564,12 +568,12 @@ async function migrateInvitations(
   let processed = 0;
 
   while (true) {
-    let query = db.select().from(invitations);
-    if (lastId) {
-      query = query.where(gt(invitations.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
+    const baseQuery = db.select().from(invitations);
+    const batch: InvitationRow[] = await (lastId
+      ? baseQuery.where(gt(invitations.id, lastId))
+      : baseQuery)
+      .orderBy(asc(invitations.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -639,12 +643,12 @@ async function migrateAuditLogs(
   let processed = 0;
 
   while (true) {
-    let query = db.select().from(auditLogs);
-    if (lastId) {
-      query = query.where(gt(auditLogs.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
+    const baseQuery = db.select().from(auditLogs);
+    const batch: AuditLogRow[] = await (lastId
+      ? baseQuery.where(gt(auditLogs.id, lastId))
+      : baseQuery)
+      .orderBy(asc(auditLogs.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -795,11 +799,12 @@ async function validateUsers(
   let checked = 0;
 
   while (true) {
-    let query = db.select().from(users);
-    if (lastId) {
-      query = query.where(gt(users.id, lastId));
-    }
-    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
+    const baseQuery = db.select().from(users);
+    const batch: UserRow[] = await (lastId
+      ? baseQuery.where(gt(users.id, lastId))
+      : baseQuery)
+      .orderBy(asc(users.id))
+      .limit(batchSize);
     if (batch.length === 0) break;
 
     for (const user of batch) {
@@ -886,11 +891,12 @@ async function validateInvitations(
   let checked = 0;
 
   while (true) {
-    let query = db.select().from(invitations);
-    if (lastId) {
-      query = query.where(gt(invitations.id, lastId));
-    }
-    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
+    const baseQuery = db.select().from(invitations);
+    const batch: InvitationRow[] = await (lastId
+      ? baseQuery.where(gt(invitations.id, lastId))
+      : baseQuery)
+      .orderBy(asc(invitations.id))
+      .limit(batchSize);
     if (batch.length === 0) break;
 
     for (const invitation of batch) {
@@ -955,11 +961,12 @@ async function validateAuditLogs(
   let checked = 0;
 
   while (true) {
-    let query = db.select().from(auditLogs);
-    if (lastId) {
-      query = query.where(gt(auditLogs.id, lastId));
-    }
-    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
+    const baseQuery = db.select().from(auditLogs);
+    const batch: AuditLogRow[] = await (lastId
+      ? baseQuery.where(gt(auditLogs.id, lastId))
+      : baseQuery)
+      .orderBy(asc(auditLogs.id))
+      .limit(batchSize);
     if (batch.length === 0) break;
 
     for (const log of batch) {
@@ -1165,12 +1172,12 @@ async function rotateUsers(
   const newKeyId = config.keyId || 'rotated';
 
   while (true) {
-    let query = db.select().from(users);
-    if (lastId) {
-      query = query.where(gt(users.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
+    const baseQuery = db.select().from(users);
+    const batch: UserRow[] = await (lastId
+      ? baseQuery.where(gt(users.id, lastId))
+      : baseQuery)
+      .orderBy(asc(users.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -1257,12 +1264,12 @@ async function rotateInvitations(
   const newKeyId = config.keyId || 'rotated';
 
   while (true) {
-    let query = db.select().from(invitations);
-    if (lastId) {
-      query = query.where(gt(invitations.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
+    const baseQuery = db.select().from(invitations);
+    const batch: InvitationRow[] = await (lastId
+      ? baseQuery.where(gt(invitations.id, lastId))
+      : baseQuery)
+      .orderBy(asc(invitations.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -1339,12 +1346,12 @@ async function rotateAuditLogs(
   const newKeyId = config.keyId || 'rotated';
 
   while (true) {
-    let query = db.select().from(auditLogs);
-    if (lastId) {
-      query = query.where(gt(auditLogs.id, lastId));
-    }
-
-    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
+    const baseQuery = db.select().from(auditLogs);
+    const batch: AuditLogRow[] = await (lastId
+      ? baseQuery.where(gt(auditLogs.id, lastId))
+      : baseQuery)
+      .orderBy(asc(auditLogs.id))
+      .limit(batchSize);
 
     if (batch.length === 0) break;
 
@@ -1384,7 +1391,8 @@ async function rotateAuditLogs(
           }
 
           // Handle metadata
-          let newMetadata: string | Record<string, unknown> | null = log.metadata;
+          let newMetadata: string | Record<string, unknown> | null =
+            log.metadata as string | Record<string, unknown> | null;
           if (log.metadata && typeof log.metadata === 'string' && isEncrypted(log.metadata)) {
             const plainMetadata = decryptJson(log.metadata, config);
             if (plainMetadata) {

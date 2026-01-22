@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-22
+
+### Added
+
+- **Alerting & Webhooks**
+  - Project-level alert rules for cost thresholds and error rates
+  - Alert event history with cooldown windows
+  - Webhook deliveries with HMAC signing, retries, and backoff
+  - Admin APIs for alert rules, events, webhooks, and delivery attempts
+
+- **Framework Integrations**
+  - Vercel AI SDK helper module (`toVercelStream`, `toVercelStreamWithData`, `collectStream`)
+  - LangChain integration module (`OrchestraChatModel`, `toOrchestraMessages`, `toOrchestraTools`)
+  - LCEL-compatible chat model wrapper for LangChain pipelines
+  - Streaming, tool binding, and piping support in LangChain wrapper
+  - Comprehensive integration guides with copy-paste Next.js routes
+  - 30 new tests for integration modules
+
+- **Developer Experience**
+  - Docker Compose setup for local PostgreSQL development
+  - Updated documentation with Docker commands and environment variables
+
 ## [0.4.0] - 2026-01-21
 
 ### Added
@@ -150,7 +172,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | OpenAI | GPT-4, GPT-3.5-Turbo | Streaming, Tools |
 | Google | Gemini 1.5 Pro, Flash | Streaming, Tools |
 
-[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.1.0...v0.2.0

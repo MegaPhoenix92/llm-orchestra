@@ -43,7 +43,9 @@ export interface AdminRoutesOptions {
  */
 const INVITATION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const ALLOWED_ALERT_TYPES = new Set(['cost_threshold', 'error_rate']);
+const ALLOWED_ALERT_STATUSES = new Set(['triggered', 'resolved']);
 const ALLOWED_WEBHOOK_EVENTS = new Set(['alert.triggered']);
+const ALLOWED_WEBHOOK_STATUSES = new Set(['pending', 'success', 'failed']);
 
 function isValidWebhookUrl(value: string): boolean {
   try {
@@ -1246,7 +1248,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
 
       const updateData: Partial<{
         name: string;
-        type: string;
+        type: 'cost_threshold' | 'error_rate';
         threshold: string;
         windowMinutes: number;
         minRequests: number;
@@ -1257,12 +1259,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         updatedAt: new Date(),
       };
 
-      const nextType = type ?? existingRule.type;
+      const nextType = (type ?? existingRule.type) as 'cost_threshold' | 'error_rate';
       if (type !== undefined) {
         if (!ALLOWED_ALERT_TYPES.has(type)) {
           return c.json({ error: 'Alert type must be cost_threshold or error_rate' }, 400);
         }
-        updateData.type = type;
+        updateData.type = type as 'cost_threshold' | 'error_rate';
       }
 
       if (name !== undefined) {
@@ -1429,9 +1431,13 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
       const offset = parseInt(c.req.query('offset') || '0', 10);
 
+      if (status && !ALLOWED_ALERT_STATUSES.has(status)) {
+        return c.json({ error: 'Invalid status filter' }, 400);
+      }
+
       const conditions = [eq(alertEvents.projectId, projectId)];
       if (ruleId) conditions.push(eq(alertEvents.ruleId, ruleId));
-      if (status) conditions.push(eq(alertEvents.status, status));
+      if (status) conditions.push(eq(alertEvents.status, status as 'triggered' | 'resolved'));
 
       const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
 
@@ -1799,9 +1805,17 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
       const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
       const offset = parseInt(c.req.query('offset') || '0', 10);
 
+      if (status && !ALLOWED_WEBHOOK_STATUSES.has(status)) {
+        return c.json({ error: 'Invalid status filter' }, 400);
+      }
+
       const conditions = [eq(webhooks.projectId, projectId)];
       if (webhookId) conditions.push(eq(webhookDeliveries.webhookId, webhookId));
-      if (status) conditions.push(eq(webhookDeliveries.status, status));
+      if (status) {
+        conditions.push(
+          eq(webhookDeliveries.status, status as 'pending' | 'success' | 'failed')
+        );
+      }
 
       const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
 
