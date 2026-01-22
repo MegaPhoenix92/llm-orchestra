@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-21
+
+### Added
+
+- **Security Scanning** (#65)
+  - CodeQL static analysis for JavaScript/TypeScript vulnerabilities
+  - Dependency scanning with `npm audit` and Dependabot
+  - Secret detection to prevent credential leaks
+  - Automated security checks in CI pipeline
+
+- **Azure AD SSO/OIDC Integration** (#66)
+  - Enterprise single sign-on via Azure Active Directory
+  - OIDC-compliant authentication flow
+  - Automatic user provisioning on first login
+  - Support for Azure AD groups and roles
+  - Environment variables: `SSO_ISSUER`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET`, `SSO_REDIRECT_URI`
+
+- **Encryption at Rest** (#67, #68, #69)
+  - AES-256-GCM field-level encryption for sensitive data
+  - PBKDF2 key derivation with 100,000 iterations
+  - Protected fields: user emails/names, invitation tokens, audit log IPs/user agents
+  - Deterministic email hashing for encrypted lookups
+  - v2 encryption format with key ID for rotation support
+
+- **Encryption CLI Commands**
+  - `encrypt status` - Show encryption coverage report with v1/v2 format distribution
+  - `encrypt migrate` - Backfill encryption for existing unencrypted data
+  - `encrypt validate` - Verify all encrypted data can be decrypted
+  - `encrypt rotate` - Re-encrypt all data with a new key for key rotation
+  - Dry-run mode and verbose output for all commands
+  - Environment variable support: `ENCRYPTION_MASTER_KEY`, `OLD_ENCRYPTION_KEY`, `NEW_ENCRYPTION_KEY`
+
+- **Key Rotation Support**
+  - v2 encryption format: `v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext>`
+  - Multi-key configuration with `previousKeys` for transition periods
+  - Backward compatibility with v1 encrypted data
+  - Automatic key selection during decryption
+
+- **Documentation**
+  - Comprehensive encryption-at-rest guide with threat model
+  - Production deployment checklist
+  - Key rotation procedures and best practices
+
+### Security
+
+- All sensitive fields now encrypted by default when `ENCRYPTION_MASTER_KEY` is set
+- Audit logs protect IP addresses and user agents
+- Invitation tokens encrypted to prevent exposure
+- Key rotation enables regular security hygiene without downtime
+
 ## [0.3.0] - 2026-01-19
 
 ### Added
@@ -100,7 +150,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | OpenAI | GPT-4, GPT-3.5-Turbo | Streaming, Tools |
 | Google | Gemini 1.5 Pro, Flash | Streaming, Tools |
 
-[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MegaPhoenix92/llm-orchestra/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 {
   "name": "llm-orchestra",
-  "version": "0.1.1",
+  "version": "0.4.0",
   "description": "Unified Observability & Orchestration SDK for Multi-Model AI Applications",
   "main": "dist/index.js",
   "module": "dist/index.js",
