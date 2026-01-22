@@ -17,7 +17,9 @@ import {
   statusCommand as encryptStatusCommand,
   migrateCommand as encryptMigrateCommand,
   validateCommand as encryptValidateCommand,
+  rotateCommand as encryptRotateCommand,
   type EncryptOptions,
+  type RotateOptions,
 } from './commands/encrypt.js';
 import { validateCloudOptions, type ApiOptions } from './api.js';
 
@@ -129,6 +131,25 @@ function getEncryptOptions(cmdOptions: Record<string, unknown>): EncryptOptions 
   };
 }
 
+/**
+ * Extract key rotation options from command options
+ */
+function getRotateOptions(cmdOptions: Record<string, unknown>): RotateOptions {
+  return {
+    databaseUrl:
+      (cmdOptions.databaseUrl as string | undefined) || process.env.DATABASE_URL || '',
+    oldKey:
+      (cmdOptions.oldKey as string | undefined) || process.env.OLD_ENCRYPTION_KEY || '',
+    newKey:
+      (cmdOptions.newKey as string | undefined) || process.env.NEW_ENCRYPTION_KEY || '',
+    oldKeyId: cmdOptions.oldKeyId as string | undefined,
+    newKeyId: cmdOptions.newKeyId as string | undefined,
+    batchSize: cmdOptions.batchSize ? parseInt(cmdOptions.batchSize as string, 10) : 100,
+    dryRun: cmdOptions.dryRun as boolean | undefined,
+    verbose: cmdOptions.verbose as boolean | undefined,
+  };
+}
+
 encryptProgram
   .command('status')
   .description('Show encryption status report for all sensitive data')
@@ -163,6 +184,22 @@ encryptProgram
     await encryptValidateCommand(options);
   });
 
+encryptProgram
+  .command('rotate')
+  .description('Rotate encryption keys - re-encrypt all data with a new key')
+  .option('-d, --database-url <url>', 'PostgreSQL connection URL')
+  .option('--old-key <key>', 'Current/old master encryption key')
+  .option('--new-key <key>', 'New master encryption key (min 32 characters)')
+  .option('--old-key-id <id>', 'Key ID for the old key (default: primary)')
+  .option('--new-key-id <id>', 'Key ID for the new key (default: rotated)')
+  .option('-b, --batch-size <n>', 'Records to process per batch', '100')
+  .option('--dry-run', 'Preview changes without applying them')
+  .option('-v, --verbose', 'Show detailed progress')
+  .action(async (cmdOptions) => {
+    const options = getRotateOptions(cmdOptions);
+    await encryptRotateCommand(options);
+  });
+
 // Help text for cloud usage
 program.addHelpText(
   'after',
@@ -179,6 +216,8 @@ ${chalk.bold('Environment Variables:')}
   ORCHESTRA_PROJECT_ID   Default project ID
   DATABASE_URL           PostgreSQL connection URL (for encrypt commands)
   ENCRYPTION_MASTER_KEY  Encryption master key (for encrypt commands)
+  OLD_ENCRYPTION_KEY     Old key for key rotation
+  NEW_ENCRYPTION_KEY     New key for key rotation
 
 ${chalk.bold('Encryption Commands:')}
   Manage encryption at rest for sensitive database data:
@@ -186,8 +225,9 @@ ${chalk.bold('Encryption Commands:')}
   $ orchestra-dashboard encrypt status -d postgres://...
   $ orchestra-dashboard encrypt migrate -d postgres://... -k <master-key>
   $ orchestra-dashboard encrypt validate -d postgres://... -k <master-key>
+  $ orchestra-dashboard encrypt rotate -d postgres://... --old-key <old> --new-key <new>
 
-  Use --dry-run with migrate to preview changes without applying them.
+  Use --dry-run with migrate or rotate to preview changes.
 `
 );
 

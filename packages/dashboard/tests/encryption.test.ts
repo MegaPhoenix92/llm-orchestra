@@ -16,6 +16,8 @@ import {
   validateEncryptionConfig,
   generateEncryptionKey,
   clearKeyCache,
+  getEncryptedKeyId,
+  needsReEncryption,
   type EncryptionConfig,
 } from '../src/auth/encryption.js';
 import {
@@ -96,9 +98,8 @@ describe('Encryption Core', () => {
     });
 
     it('should_throw_when_unsupportedVersion', () => {
-      const parts = encrypt('test', TEST_CONFIG).split(':');
-      parts[0] = 'v2';
-      expect(() => decrypt(parts.join(':'), TEST_CONFIG)).toThrow('Unsupported encryption version');
+      // Create a fake v3 format (unsupported)
+      expect(() => decrypt('v3:keyid:salt:iv:tag:data', TEST_CONFIG)).toThrow('Unsupported encryption version');
     });
 
     it('should_throw_when_wrongMasterKey', () => {
@@ -226,6 +227,129 @@ describe('Encryption Core', () => {
 
       expect(key1).not.toBe(key2);
       expect(key1.length).toBeGreaterThan(32);
+    });
+  });
+
+  describe('key rotation', () => {
+    const PRIMARY_CONFIG: EncryptionConfig = {
+      masterKey: 'primary-key-that-is-at-least-32-characters-long',
+      keyId: 'primary',
+    };
+
+    const ROTATED_CONFIG: EncryptionConfig = {
+      masterKey: 'rotated-key-that-is-at-least-32-characters-long',
+      keyId: 'rotated',
+      previousKeys: [{ keyId: 'primary', masterKey: PRIMARY_CONFIG.masterKey }],
+    };
+
+    it('should_encryptWithKeyId_when_v2Format', () => {
+      const encrypted = encrypt('test', PRIMARY_CONFIG);
+      expect(encrypted.startsWith('v2:primary:')).toBe(true);
+    });
+
+    it('should_extractKeyId_when_v2Format', () => {
+      const encrypted = encrypt('test', PRIMARY_CONFIG);
+      expect(getEncryptedKeyId(encrypted)).toBe('primary');
+    });
+
+    it('should_returnNull_when_notEncrypted', () => {
+      expect(getEncryptedKeyId('plain text')).toBeNull();
+    });
+
+    it('should_decrypt_when_matchingKeyId', () => {
+      const encrypted = encrypt('secret', PRIMARY_CONFIG);
+      const decrypted = decrypt(encrypted, PRIMARY_CONFIG);
+      expect(decrypted).toBe('secret');
+    });
+
+    it('should_decrypt_when_usingPreviousKey', () => {
+      // Encrypt with primary key
+      const encrypted = encrypt('secret', PRIMARY_CONFIG);
+
+      // Decrypt with rotated config (which has primary as previous key)
+      const decrypted = decrypt(encrypted, ROTATED_CONFIG);
+      expect(decrypted).toBe('secret');
+    });
+
+    it('should_throw_when_unknownKeyId', () => {
+      const encrypted = encrypt('test', PRIMARY_CONFIG);
+      const configWithoutPrimary: EncryptionConfig = {
+        masterKey: 'some-other-key-that-is-at-least-32-characters',
+        keyId: 'other',
+      };
+      expect(() => decrypt(encrypted, configWithoutPrimary)).toThrow('Unknown encryption key ID');
+    });
+
+    it('should_detectReEncryptionNeeded_when_differentKeyId', () => {
+      const encrypted = encrypt('test', PRIMARY_CONFIG);
+      expect(needsReEncryption(encrypted, 'rotated')).toBe(true);
+      expect(needsReEncryption(encrypted, 'primary')).toBe(false);
+    });
+
+    it('should_detectReEncryptionNeeded_when_v1Format', () => {
+      // Create a v1-style format (simulate legacy data)
+      // v1 format always needs re-encryption to add key ID
+      const v1Encrypted = 'v1:c2FsdA==:aXY=:dGFn:ZGF0YQ==';
+      expect(needsReEncryption(v1Encrypted, 'primary')).toBe(true);
+    });
+
+    it('should_decrypt_v1Data_when_keyInPreviousKeys', () => {
+      // Create a v1-style encrypted value using the primary key
+      // We need to create actual v1 format data encrypted with primary key
+      // Since encrypt() now produces v2 format, we'll manually construct a v1 value
+
+      // First encrypt with primary key to get a working encrypted value
+      const v2Encrypted = encrypt('v1 secret data', PRIMARY_CONFIG);
+
+      // Convert v2 to v1 format by removing the keyId component
+      // v2: v2:keyId:salt:iv:authTag:ciphertext
+      // v1: v1:salt:iv:authTag:ciphertext
+      const parts = v2Encrypted.split(':');
+      const v1Encrypted = `v1:${parts[2]}:${parts[3]}:${parts[4]}:${parts[5]}`;
+
+      // Now try to decrypt with ROTATED_CONFIG (where primary key is new, and old key is in previousKeys)
+      // This should work because decrypt tries all keys for v1 format
+      const decrypted = decrypt(v1Encrypted, ROTATED_CONFIG);
+      expect(decrypted).toBe('v1 secret data');
+    });
+
+    it('should_throw_when_v1DataCannotBeDecrypted', () => {
+      // Create v1 data with an unknown key
+      const unknownKeyConfig: EncryptionConfig = {
+        masterKey: 'unknown-key-that-is-at-least-32-characters-long',
+        keyId: 'unknown',
+      };
+      const v2Encrypted = encrypt('secret', unknownKeyConfig);
+      const parts = v2Encrypted.split(':');
+      const v1Encrypted = `v1:${parts[2]}:${parts[3]}:${parts[4]}:${parts[5]}`;
+
+      // Try to decrypt with a config that doesn't have this key
+      expect(() => decrypt(v1Encrypted, PRIMARY_CONFIG)).toThrow('Failed to decrypt v1 data');
+    });
+
+    it('should_reEncrypt_when_rotatingKeys', () => {
+      // Encrypt with primary key
+      const originalEncrypted = encrypt('secret', PRIMARY_CONFIG);
+      expect(getEncryptedKeyId(originalEncrypted)).toBe('primary');
+
+      // Decrypt with rotated config
+      const plaintext = decrypt(originalEncrypted, ROTATED_CONFIG);
+
+      // Re-encrypt with rotated key
+      const reEncrypted = encrypt(plaintext, ROTATED_CONFIG);
+      expect(getEncryptedKeyId(reEncrypted)).toBe('rotated');
+
+      // Verify we can still decrypt
+      const finalDecrypted = decrypt(reEncrypted, ROTATED_CONFIG);
+      expect(finalDecrypted).toBe('secret');
+    });
+
+    it('should_useDefaultKeyId_when_notSpecified', () => {
+      const configWithoutKeyId: EncryptionConfig = {
+        masterKey: 'default-key-that-is-at-least-32-characters-long',
+      };
+      const encrypted = encrypt('test', configWithoutKeyId);
+      expect(getEncryptedKeyId(encrypted)).toBe('primary'); // Default key ID
     });
   });
 });
@@ -452,10 +576,12 @@ describe('Security', () => {
     const encrypted = encrypt('test', TEST_CONFIG);
     const parts = encrypted.split(':');
 
-    // Tamper with the ciphertext
-    const ciphertext = Buffer.from(parts[4], 'base64');
+    // v2 format: v2:keyId:salt:iv:authTag:ciphertext
+    // Tamper with the ciphertext (index 5 in v2 format)
+    const ciphertextIndex = parts[0] === 'v2' ? 5 : 4;
+    const ciphertext = Buffer.from(parts[ciphertextIndex], 'base64');
     ciphertext[0] = ciphertext[0] ^ 0xff;
-    parts[4] = ciphertext.toString('base64');
+    parts[ciphertextIndex] = ciphertext.toString('base64');
 
     const tampered = parts.join(':');
 
@@ -466,10 +592,12 @@ describe('Security', () => {
     const encrypted = encrypt('test', TEST_CONFIG);
     const parts = encrypted.split(':');
 
-    // Tamper with the auth tag
-    const authTag = Buffer.from(parts[3], 'base64');
+    // v2 format: v2:keyId:salt:iv:authTag:ciphertext
+    // Tamper with the auth tag (index 4 in v2 format)
+    const authTagIndex = parts[0] === 'v2' ? 4 : 3;
+    const authTag = Buffer.from(parts[authTagIndex], 'base64');
     authTag[0] = authTag[0] ^ 0xff;
-    parts[3] = authTag.toString('base64');
+    parts[authTagIndex] = authTag.toString('base64');
 
     const tampered = parts.join(':');
 

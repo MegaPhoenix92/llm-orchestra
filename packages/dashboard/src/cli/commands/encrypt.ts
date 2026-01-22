@@ -11,10 +11,13 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { createDatabase, users, invitations, auditLogs, type Database } from '../../db/index.js';
 import {
+  encrypt,
   decrypt,
   decryptJson,
   isEncrypted,
   validateEncryptionConfig,
+  needsReEncryption,
+  clearKeyCache,
   type EncryptionConfig,
 } from '../../auth/encryption.js';
 import { encryptUser, encryptInvitation, encryptAuditLog, hashEmailForLookup } from '../../db/encrypted-fields.js';
@@ -37,6 +40,28 @@ export interface EncryptOptions {
 }
 
 /**
+ * Options for key rotation command
+ */
+export interface RotateOptions {
+  /** PostgreSQL connection string */
+  databaseUrl: string;
+  /** Current/old master encryption key */
+  oldKey: string;
+  /** New master encryption key */
+  newKey: string;
+  /** Key ID for the old key (defaults to 'primary') */
+  oldKeyId?: string;
+  /** Key ID for the new key (defaults to 'rotated') */
+  newKeyId?: string;
+  /** Batch size for processing (default: 100) */
+  batchSize?: number;
+  /** Dry run mode - don't actually modify data */
+  dryRun?: boolean;
+  /** Verbose output */
+  verbose?: boolean;
+}
+
+/**
  * Encryption status report
  */
 interface EncryptionStatus {
@@ -45,6 +70,8 @@ interface EncryptionStatus {
   encrypted: number;
   unencrypted: number;
   percentage: number;
+  v1Count: number;
+  v2Count: number;
 }
 
 /**
@@ -94,26 +121,35 @@ async function countEncryptedField(
   db: Database,
   tableName: string,
   fieldName: string
-): Promise<{ encrypted: number; unencrypted: number }> {
-  // Count records where field starts with 'v1:' (encrypted)
-  const encryptedResult = await db.execute(
+): Promise<{ encrypted: number; unencrypted: number; v1Count: number; v2Count: number }> {
+  // Count records with v1 format
+  const v1Result = await db.execute(
     sql`SELECT COUNT(*) as count FROM ${sql.identifier(tableName)}
         WHERE ${sql.identifier(fieldName)} IS NOT NULL
         AND ${sql.identifier(fieldName)} LIKE 'v1:%'`
   );
 
-  // Count records where field doesn't start with 'v1:' (unencrypted)
+  // Count records with v2 format
+  const v2Result = await db.execute(
+    sql`SELECT COUNT(*) as count FROM ${sql.identifier(tableName)}
+        WHERE ${sql.identifier(fieldName)} IS NOT NULL
+        AND ${sql.identifier(fieldName)} LIKE 'v2:%'`
+  );
+
+  // Count records where field doesn't start with 'v1:' or 'v2:' (unencrypted)
   const unencryptedResult = await db.execute(
     sql`SELECT COUNT(*) as count FROM ${sql.identifier(tableName)}
         WHERE ${sql.identifier(fieldName)} IS NOT NULL
         AND ${sql.identifier(fieldName)} != ''
-        AND ${sql.identifier(fieldName)} NOT LIKE 'v1:%'`
+        AND ${sql.identifier(fieldName)} NOT LIKE 'v1:%'
+        AND ${sql.identifier(fieldName)} NOT LIKE 'v2:%'`
   );
 
-  const encrypted = Number((encryptedResult.rows[0] as { count: string }).count);
+  const v1Count = Number((v1Result.rows[0] as { count: string }).count);
+  const v2Count = Number((v2Result.rows[0] as { count: string }).count);
   const unencrypted = Number((unencryptedResult.rows[0] as { count: string }).count);
 
-  return { encrypted, unencrypted };
+  return { encrypted: v1Count + v2Count, unencrypted, v1Count, v2Count };
 }
 
 /**
@@ -146,6 +182,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
     encrypted: userEmailStats.encrypted,
     unencrypted: userEmailStats.unencrypted,
     percentage: userTotal > 0 ? Math.round((userEmailStats.encrypted / userTotal) * 100) : 100,
+    v1Count: userEmailStats.v1Count,
+    v2Count: userEmailStats.v2Count,
   });
 
   // Filter out empty name records for name stats
@@ -161,6 +199,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (userNameStats.encrypted / (userNameStats.encrypted + userNameStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: userNameStats.v1Count,
+      v2Count: userNameStats.v2Count,
     });
   }
 
@@ -176,6 +216,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (userSsoIdStats.encrypted / (userSsoIdStats.encrypted + userSsoIdStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: userSsoIdStats.v1Count,
+      v2Count: userSsoIdStats.v2Count,
     });
   }
 
@@ -196,6 +238,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (invEmailStats.encrypted / (invEmailStats.encrypted + invEmailStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: invEmailStats.v1Count,
+      v2Count: invEmailStats.v2Count,
     });
   }
 
@@ -211,6 +255,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (invTokenStats.encrypted / (invTokenStats.encrypted + invTokenStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: invTokenStats.v1Count,
+      v2Count: invTokenStats.v2Count,
     });
   }
 
@@ -231,6 +277,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (auditIpStats.encrypted / (auditIpStats.encrypted + auditIpStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: auditIpStats.v1Count,
+      v2Count: auditIpStats.v2Count,
     });
   }
 
@@ -246,6 +294,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
               (auditUaStats.encrypted / (auditUaStats.encrypted + auditUaStats.unencrypted)) * 100
             )
           : 100,
+      v1Count: auditUaStats.v1Count,
+      v2Count: auditUaStats.v2Count,
     });
   }
 
@@ -267,6 +317,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
       chalk.bold('Total'),
       chalk.bold('Encrypted'),
       chalk.bold('Unencrypted'),
+      chalk.bold('v1'),
+      chalk.bold('v2'),
       chalk.bold('Progress'),
     ],
     style: { head: [], border: [] },
@@ -281,6 +333,8 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
       String(status.total),
       chalk.green(String(status.encrypted)),
       status.unencrypted > 0 ? chalk.red(String(status.unencrypted)) : chalk.gray('0'),
+      status.v1Count > 0 ? chalk.yellow(String(status.v1Count)) : chalk.gray('0'),
+      status.v2Count > 0 ? chalk.green(String(status.v2Count)) : chalk.gray('0'),
       color(progressBar + ' ' + status.percentage + '%'),
     ]);
   }
@@ -297,6 +351,22 @@ export async function statusCommand(options: EncryptOptions): Promise<void> {
     console.log(chalk.green(`  ✓ All ${withHash} users have email hash`));
   } else {
     console.log(chalk.gray('  No users in database'));
+  }
+
+  // Key version summary
+  const totalV1 = statuses.reduce((sum, s) => sum + s.v1Count, 0);
+  const totalV2 = statuses.reduce((sum, s) => sum + s.v2Count, 0);
+  if (totalV1 > 0 || totalV2 > 0) {
+    console.log('\n' + chalk.bold('Encryption Format Versions:'));
+    if (totalV1 > 0) {
+      console.log(chalk.yellow(`  ⚠ v1 format (legacy): ${totalV1} records - consider key rotation`));
+    }
+    if (totalV2 > 0) {
+      console.log(chalk.green(`  ✓ v2 format (current): ${totalV2} records`));
+    }
+    if (totalV1 > 0 && totalV2 === 0) {
+      console.log(chalk.gray('    Run: orchestra-dashboard encrypt rotate --help'));
+    }
   }
 
   // Summary
@@ -967,4 +1037,385 @@ async function validateAuditLogs(
 
   console.log(chalk.gray(`  Checked ${checked} audit logs`));
   return { valid, invalid, unencrypted };
+}
+
+/**
+ * Validate key rotation options and return config for new key
+ * The returned config includes the old key in previousKeys for decryption
+ */
+function validateRotateOptions(options: RotateOptions): EncryptionConfig {
+  if (!options.databaseUrl) {
+    console.error(chalk.red('Error:'), 'Database URL is required');
+    console.log(chalk.gray('Use --database-url <url> or set DATABASE_URL environment variable'));
+    process.exit(1);
+  }
+
+  if (!options.oldKey) {
+    console.error(chalk.red('Error:'), 'Old encryption key is required');
+    console.log(chalk.gray('Use --old-key <key> or set OLD_ENCRYPTION_KEY environment variable'));
+    process.exit(1);
+  }
+
+  if (!options.newKey) {
+    console.error(chalk.red('Error:'), 'New encryption key is required');
+    console.log(chalk.gray('Use --new-key <key> or set NEW_ENCRYPTION_KEY environment variable'));
+    process.exit(1);
+  }
+
+  if (options.newKey.length < 32) {
+    console.error(chalk.red('Error:'), 'New encryption key must be at least 32 characters');
+    process.exit(1);
+  }
+
+  if (options.oldKey === options.newKey) {
+    console.error(chalk.red('Error:'), 'Old and new keys must be different');
+    process.exit(1);
+  }
+
+  const oldKeyId = options.oldKeyId || 'primary';
+  const newKeyId = options.newKeyId || 'rotated';
+
+  // Config for encryption with new key (includes old key for decryption)
+  return {
+    masterKey: options.newKey,
+    keyId: newKeyId,
+    previousKeys: [{ keyId: oldKeyId, masterKey: options.oldKey }],
+  };
+}
+
+/**
+ * Rotate command - Re-encrypt all data with a new key
+ */
+export async function rotateCommand(options: RotateOptions): Promise<void> {
+  console.log('\n' + chalk.bold.cyan('Encryption Key Rotation') + '\n');
+
+  if (options.dryRun) {
+    console.log(chalk.yellow('DRY RUN MODE - No changes will be made\n'));
+  }
+
+  const newConfig = validateRotateOptions(options);
+  const db = connectDatabase(options.databaseUrl);
+  const batchSize = options.batchSize || 100;
+
+  // Clear key cache to ensure fresh key derivation
+  clearKeyCache();
+
+  let totalRotated = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
+
+  // Rotate users
+  console.log(chalk.bold('Rotating users...'));
+  const userResult = await rotateUsers(db, newConfig, batchSize, options.dryRun, options.verbose);
+  totalRotated += userResult.rotated;
+  totalSkipped += userResult.skipped;
+  totalErrors += userResult.errors;
+
+  // Rotate invitations
+  console.log(chalk.bold('\nRotating invitations...'));
+  const invResult = await rotateInvitations(db, newConfig, batchSize, options.dryRun, options.verbose);
+  totalRotated += invResult.rotated;
+  totalSkipped += invResult.skipped;
+  totalErrors += invResult.errors;
+
+  // Rotate audit logs
+  console.log(chalk.bold('\nRotating audit logs...'));
+  const auditResult = await rotateAuditLogs(db, newConfig, batchSize, options.dryRun, options.verbose);
+  totalRotated += auditResult.rotated;
+  totalSkipped += auditResult.skipped;
+  totalErrors += auditResult.errors;
+
+  // Summary
+  console.log('\n' + chalk.bold('Key Rotation Summary:'));
+  console.log(chalk.green(`  ✓ Rotated: ${totalRotated} records`));
+  console.log(chalk.gray(`  ○ Skipped (already on new key or unencrypted): ${totalSkipped} records`));
+  if (totalErrors > 0) {
+    console.log(chalk.red(`  ✗ Errors: ${totalErrors} records`));
+  }
+
+  if (options.dryRun) {
+    console.log(chalk.yellow('\nDry run complete. Run without --dry-run to apply changes.'));
+  } else {
+    console.log(chalk.green('\nKey rotation complete!'));
+    console.log(chalk.gray('\nNext steps:'));
+    console.log(chalk.gray('  1. Update ENCRYPTION_MASTER_KEY to the new key'));
+    console.log(chalk.gray('  2. Keep the old key configured in previousKeys for a transition period'));
+    console.log(chalk.gray('  3. Run "encrypt validate" to verify all data'));
+  }
+
+  console.log('');
+}
+
+/**
+ * Rotate encryption keys for users table
+ */
+async function rotateUsers(
+  db: Database,
+  config: EncryptionConfig,
+  batchSize: number,
+  dryRun?: boolean,
+  verbose?: boolean
+): Promise<{ rotated: number; skipped: number; errors: number }> {
+  let rotated = 0;
+  let skipped = 0;
+  let errors = 0;
+  let lastId: string | null = null;
+  let processed = 0;
+
+  const newKeyId = config.keyId || 'rotated';
+
+  while (true) {
+    let query = db.select().from(users);
+    if (lastId) {
+      query = query.where(gt(users.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(users.id)).limit(batchSize);
+
+    if (batch.length === 0) break;
+
+    for (const user of batch) {
+      try {
+        // Check if any field needs re-encryption
+        const emailNeedsRotation = needsReEncryption(user.email, newKeyId);
+        const nameNeedsRotation = user.name ? needsReEncryption(user.name, newKeyId) : false;
+        const ssoIdNeedsRotation = user.ssoId ? needsReEncryption(user.ssoId, newKeyId) : false;
+
+        if (!emailNeedsRotation && !nameNeedsRotation && !ssoIdNeedsRotation) {
+          skipped++;
+          continue;
+        }
+
+        if (verbose) {
+          console.log(chalk.gray(`  Rotating user ${user.id}...`));
+        }
+
+        if (!dryRun) {
+          // Decrypt (config has previousKeys for old key, and decrypt tries all keys for v1)
+          const plainEmail = isEncrypted(user.email) ? decrypt(user.email, config) : user.email;
+          const plainName = user.name
+            ? isEncrypted(user.name)
+              ? decrypt(user.name, config)
+              : user.name
+            : null;
+          const plainSsoId = user.ssoId
+            ? isEncrypted(user.ssoId)
+              ? decrypt(user.ssoId, config)
+              : user.ssoId
+            : null;
+
+          // Re-encrypt with new key
+          const newEmail = encrypt(plainEmail, config);
+          const newName = plainName ? encrypt(plainName, config) : null;
+          const newSsoId = plainSsoId ? encrypt(plainSsoId, config) : null;
+
+          await db
+            .update(users)
+            .set({
+              email: newEmail,
+              name: newName,
+              ssoId: newSsoId,
+              updatedAt: new Date(),
+            })
+            .where(eq(users.id, user.id));
+        }
+
+        rotated++;
+      } catch (error) {
+        errors++;
+        if (verbose) {
+          console.log(chalk.red(`  Error rotating user ${user.id}: ${(error as Error).message}`));
+        }
+      }
+    }
+
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
+  }
+
+  console.log(chalk.gray(`  Processed ${processed} total records`));
+  return { rotated, skipped, errors };
+}
+
+/**
+ * Rotate encryption keys for invitations table
+ */
+async function rotateInvitations(
+  db: Database,
+  config: EncryptionConfig,
+  batchSize: number,
+  dryRun?: boolean,
+  verbose?: boolean
+): Promise<{ rotated: number; skipped: number; errors: number }> {
+  let rotated = 0;
+  let skipped = 0;
+  let errors = 0;
+  let lastId: string | null = null;
+  let processed = 0;
+
+  const newKeyId = config.keyId || 'rotated';
+
+  while (true) {
+    let query = db.select().from(invitations);
+    if (lastId) {
+      query = query.where(gt(invitations.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(invitations.id)).limit(batchSize);
+
+    if (batch.length === 0) break;
+
+    for (const invitation of batch) {
+      try {
+        const emailNeedsRotation = needsReEncryption(invitation.email, newKeyId);
+        const tokenNeedsRotation = needsReEncryption(invitation.token, newKeyId);
+
+        if (!emailNeedsRotation && !tokenNeedsRotation) {
+          skipped++;
+          continue;
+        }
+
+        if (verbose) {
+          console.log(chalk.gray(`  Rotating invitation ${invitation.id}...`));
+        }
+
+        if (!dryRun) {
+          const plainEmail = isEncrypted(invitation.email)
+            ? decrypt(invitation.email, config)
+            : invitation.email;
+          const plainToken = isEncrypted(invitation.token)
+            ? decrypt(invitation.token, config)
+            : invitation.token;
+
+          const newEmail = encrypt(plainEmail, config);
+          const newToken = encrypt(plainToken, config);
+
+          await db
+            .update(invitations)
+            .set({
+              email: newEmail,
+              token: newToken,
+            })
+            .where(eq(invitations.id, invitation.id));
+        }
+
+        rotated++;
+      } catch (error) {
+        errors++;
+        if (verbose) {
+          console.log(
+            chalk.red(`  Error rotating invitation ${invitation.id}: ${(error as Error).message}`)
+          );
+        }
+      }
+    }
+
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
+  }
+
+  console.log(chalk.gray(`  Processed ${processed} total records`));
+  return { rotated, skipped, errors };
+}
+
+/**
+ * Rotate encryption keys for audit_logs table
+ */
+async function rotateAuditLogs(
+  db: Database,
+  config: EncryptionConfig,
+  batchSize: number,
+  dryRun?: boolean,
+  verbose?: boolean
+): Promise<{ rotated: number; skipped: number; errors: number }> {
+  let rotated = 0;
+  let skipped = 0;
+  let errors = 0;
+  let lastId: string | null = null;
+  let processed = 0;
+
+  const newKeyId = config.keyId || 'rotated';
+
+  while (true) {
+    let query = db.select().from(auditLogs);
+    if (lastId) {
+      query = query.where(gt(auditLogs.id, lastId));
+    }
+
+    const batch = await query.orderBy(asc(auditLogs.id)).limit(batchSize);
+
+    if (batch.length === 0) break;
+
+    for (const log of batch) {
+      try {
+        const ipNeedsRotation = log.ip ? needsReEncryption(log.ip, newKeyId) : false;
+        const uaNeedsRotation = log.userAgent ? needsReEncryption(log.userAgent, newKeyId) : false;
+        const metadataNeedsRotation =
+          log.metadata && typeof log.metadata === 'string'
+            ? needsReEncryption(log.metadata, newKeyId)
+            : false;
+
+        if (!ipNeedsRotation && !uaNeedsRotation && !metadataNeedsRotation) {
+          skipped++;
+          continue;
+        }
+
+        if (verbose) {
+          console.log(chalk.gray(`  Rotating audit log ${log.id}...`));
+        }
+
+        if (!dryRun) {
+          // Handle IP
+          let newIp: string | null = null;
+          if (log.ip) {
+            const plainIp = isEncrypted(log.ip) ? decrypt(log.ip, config) : log.ip;
+            newIp = encrypt(plainIp, config);
+          }
+
+          // Handle user agent
+          let newUa: string | null = null;
+          if (log.userAgent) {
+            const plainUa = isEncrypted(log.userAgent)
+              ? decrypt(log.userAgent, config)
+              : log.userAgent;
+            newUa = encrypt(plainUa, config);
+          }
+
+          // Handle metadata
+          let newMetadata: string | Record<string, unknown> | null = log.metadata;
+          if (log.metadata && typeof log.metadata === 'string' && isEncrypted(log.metadata)) {
+            const plainMetadata = decryptJson(log.metadata, config);
+            if (plainMetadata) {
+              newMetadata = encrypt(JSON.stringify(plainMetadata), config);
+            }
+          }
+
+          await db
+            .update(auditLogs)
+            .set({
+              ip: newIp,
+              userAgent: newUa,
+              metadata: newMetadata,
+            })
+            .where(eq(auditLogs.id, log.id));
+        }
+
+        rotated++;
+      } catch (error) {
+        errors++;
+        if (verbose) {
+          console.log(chalk.red(`  Error rotating audit log ${log.id}: ${(error as Error).message}`));
+        }
+      }
+    }
+
+    lastId = batch[batch.length - 1].id;
+    processed += batch.length;
+    process.stdout.write(chalk.gray(`  Processed ${processed} records...\r`));
+  }
+
+  console.log(chalk.gray(`  Processed ${processed} total records`));
+  return { rotated, skipped, errors };
 }

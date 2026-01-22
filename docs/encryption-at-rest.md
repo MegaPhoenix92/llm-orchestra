@@ -3,13 +3,22 @@
 ## Overview
 LLM Orchestra Cloud Dashboard supports field-level encryption for sensitive data stored in PostgreSQL.
 It uses AES-256-GCM with PBKDF2 (100,000 iterations) and per-value random salt and IV.
-Encrypted values are stored as:
 
+### Encryption Formats
+The dashboard supports two encryption formats:
+
+**v1 (Legacy):**
 ```
 v1:<salt>:<iv>:<authTag>:<ciphertext>
 ```
 
+**v2 (Current - supports key rotation):**
+```
+v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext>
+```
+
 All components are base64 encoded. The master key must be at least 32 characters.
+New encryptions use v2 format. The v1 format is supported for backward compatibility during migration.
 
 ## Protected Data
 The following fields are encrypted when encryption is enabled:
@@ -66,8 +75,79 @@ orchestra-dashboard encrypt migrate -d $DATABASE_URL -k $ENCRYPTION_MASTER_KEY
 orchestra-dashboard encrypt validate -d $DATABASE_URL -k $ENCRYPTION_MASTER_KEY
 ```
 
+## Key Rotation
+
+Key rotation allows you to re-encrypt all data with a new encryption key. This is important for:
+- Regular security hygiene (rotating keys periodically)
+- Responding to potential key compromise
+- Upgrading from v1 to v2 encryption format
+
+### Rotation Process
+
+```bash
+# Generate a new key (min 32 characters)
+NEW_KEY=$(openssl rand -base64 32)
+
+# Dry-run to preview changes
+orchestra-dashboard encrypt rotate \
+  -d $DATABASE_URL \
+  --old-key $ENCRYPTION_MASTER_KEY \
+  --new-key $NEW_KEY \
+  --dry-run
+
+# Apply rotation
+orchestra-dashboard encrypt rotate \
+  -d $DATABASE_URL \
+  --old-key $ENCRYPTION_MASTER_KEY \
+  --new-key $NEW_KEY
+
+# Validate all data can be decrypted
+orchestra-dashboard encrypt validate \
+  -d $DATABASE_URL \
+  -k $NEW_KEY
+
+# Check status (should show all v2 format)
+orchestra-dashboard encrypt status -d $DATABASE_URL
+```
+
+### Rotation Options
+
+| Option | Description |
+|--------|-------------|
+| `--old-key` | Current encryption key (or OLD_ENCRYPTION_KEY env var) |
+| `--new-key` | New encryption key (or NEW_ENCRYPTION_KEY env var) |
+| `--old-key-id` | Key ID for old key (default: `primary`) |
+| `--new-key-id` | Key ID for new key (default: `rotated`) |
+| `--batch-size` | Records per batch (default: 100) |
+| `--dry-run` | Preview without changes |
+| `-v, --verbose` | Show detailed progress |
+
+### Configuration with Multiple Keys
+
+During transition, configure your application to support both old and new keys:
+
+```ts
+const dashboard = await createCloudDashboard({
+  database: { connectionString: process.env.DATABASE_URL },
+  auth: { jwtSecret: process.env.JWT_SECRET },
+  encryption: {
+    masterKey: process.env.NEW_ENCRYPTION_KEY,
+    keyId: 'rotated',
+    previousKeys: [
+      { keyId: 'primary', masterKey: process.env.OLD_ENCRYPTION_KEY },
+    ],
+  },
+});
+```
+
+After rotation completes and you've verified all data is readable:
+1. Update `ENCRYPTION_MASTER_KEY` to the new key
+2. Remove the old key from `previousKeys` after a transition period
+3. Securely delete the old key
+
 ## Operational Guidance
-- Store the master key in a secrets manager (not in source control).
+- Store encryption keys in a secrets manager (not in source control).
 - Keep encrypted backups and enable disk-level encryption on your database volume.
-- If you rotate the key, plan a re-encryption job. Key rotation is not built-in yet.
+- Rotate keys periodically (e.g., annually) or after suspected compromise.
 - Losing the master key means encrypted data cannot be recovered.
+- During key rotation, keep both old and new keys available until migration is complete.

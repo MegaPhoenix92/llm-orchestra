@@ -10,13 +10,25 @@
 import crypto from 'crypto';
 
 /**
- * Encryption configuration
+ * A single encryption key with its identifier
+ */
+export interface EncryptionKey {
+  /** Unique identifier for this key */
+  keyId: string;
+  /** The actual encryption key (32+ characters) */
+  masterKey: string;
+}
+
+/**
+ * Encryption configuration with support for key rotation
  */
 export interface EncryptionConfig {
   /** Master encryption key (32+ characters recommended) */
   masterKey: string;
-  /** Optional key identifier for key rotation support */
+  /** Key identifier for the current key (defaults to 'primary') */
   keyId?: string;
+  /** Previous keys for decryption during key rotation (decrypt-only) */
+  previousKeys?: EncryptionKey[];
 }
 
 /**
@@ -27,7 +39,16 @@ const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits for GCM
 const SALT_LENGTH = 16; // 128 bits
 const PBKDF2_ITERATIONS = 100000;
-const CURRENT_VERSION = 'v1';
+const DEFAULT_KEY_ID = 'primary';
+
+/**
+ * Encryption format versions:
+ * - v1: Original format without key ID (for backward compatibility)
+ * - v2: Includes key ID for key rotation support
+ */
+const VERSION_V1 = 'v1';
+const VERSION_V2 = 'v2';
+const CURRENT_VERSION = VERSION_V2;
 
 /**
  * Cached derived keys to avoid repeated PBKDF2 computation
@@ -63,7 +84,7 @@ function deriveKey(masterKey: string, salt: Buffer): Buffer {
  *
  * @param plaintext - The string to encrypt
  * @param config - Encryption configuration with master key
- * @returns Encrypted string in format: v1:<salt>:<iv>:<authTag>:<ciphertext>
+ * @returns Encrypted string in format: v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext>
  */
 export function encrypt(plaintext: string, config: EncryptionConfig): string {
   if (!plaintext) {
@@ -82,9 +103,13 @@ export function encrypt(plaintext: string, config: EncryptionConfig): string {
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  // Encode all components to base64
+  // Use key ID from config or default
+  const keyId = config.keyId || DEFAULT_KEY_ID;
+
+  // Encode all components to base64 (v2 format includes keyId)
   const components = [
     CURRENT_VERSION,
+    keyId,
     salt.toString('base64'),
     iv.toString('base64'),
     authTag.toString('base64'),
@@ -95,10 +120,57 @@ export function encrypt(plaintext: string, config: EncryptionConfig): string {
 }
 
 /**
+ * Find the master key for a given key ID
+ */
+function findKeyById(keyId: string, config: EncryptionConfig): string | null {
+  // Check if it matches the current key
+  const currentKeyId = config.keyId || DEFAULT_KEY_ID;
+  if (keyId === currentKeyId) {
+    return config.masterKey;
+  }
+
+  // Check previous keys
+  if (config.previousKeys) {
+    const previousKey = config.previousKeys.find((k) => k.keyId === keyId);
+    if (previousKey) {
+      return previousKey.masterKey;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Attempt to decrypt data with a specific key
+ */
+function tryDecrypt(
+  encrypted: Buffer,
+  salt: Buffer,
+  iv: Buffer,
+  authTag: Buffer,
+  masterKey: string
+): string | null {
+  try {
+    const key = deriveKey(masterKey, salt);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    // Decryption failed with this key
+    return null;
+  }
+}
+
+/**
  * Decrypt an encrypted string
  *
- * @param ciphertext - The encrypted string in format: v1:<salt>:<iv>:<authTag>:<ciphertext>
- * @param config - Encryption configuration with master key
+ * Supports both v1 and v2 formats:
+ * - v1: v1:<salt>:<iv>:<authTag>:<ciphertext> (tries all keys)
+ * - v2: v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext> (uses key by ID)
+ *
+ * @param ciphertext - The encrypted string
+ * @param config - Encryption configuration with master key and optional previous keys
  * @returns Decrypted plaintext string
  * @throws Error if decryption fails or format is invalid
  */
@@ -115,39 +187,103 @@ export function decrypt(ciphertext: string, config: EncryptionConfig): string {
   }
 
   const version = versionMatch[1];
-  if (version !== CURRENT_VERSION) {
+  const parts = ciphertext.split(':');
+
+  if (version === VERSION_V1) {
+    // v1 format: v1:<salt>:<iv>:<authTag>:<ciphertext>
+    if (parts.length !== 5) {
+      throw new Error('Invalid encrypted data format (v1)');
+    }
+    const [, saltB64, ivB64, authTagB64, encryptedB64] = parts;
+
+    // Decode components
+    const salt = Buffer.from(saltB64, 'base64');
+    const iv = Buffer.from(ivB64, 'base64');
+    const authTag = Buffer.from(authTagB64, 'base64');
+    const encrypted = Buffer.from(encryptedB64, 'base64');
+
+    // v1 format has no key ID, so we must try all available keys
+    const keysToTry = [
+      config.masterKey,
+      ...(config.previousKeys?.map((k) => k.masterKey) ?? []),
+    ];
+
+    for (const masterKey of keysToTry) {
+      const result = tryDecrypt(encrypted, salt, iv, authTag, masterKey);
+      if (result !== null) {
+        return result;
+      }
+    }
+
+    throw new Error('Failed to decrypt v1 data with any available key');
+  } else if (version === VERSION_V2) {
+    // v2 format: v2:<keyId>:<salt>:<iv>:<authTag>:<ciphertext>
+    if (parts.length !== 6) {
+      throw new Error('Invalid encrypted data format (v2)');
+    }
+    const keyId = parts[1];
+    const [, , saltB64, ivB64, authTagB64, encryptedB64] = parts;
+
+    // Find the key by ID
+    const masterKey = findKeyById(keyId, config);
+    if (!masterKey) {
+      throw new Error(`Unknown encryption key ID: ${keyId}`);
+    }
+
+    // Decode components
+    const salt = Buffer.from(saltB64, 'base64');
+    const iv = Buffer.from(ivB64, 'base64');
+    const authTag = Buffer.from(authTagB64, 'base64');
+    const encrypted = Buffer.from(encryptedB64, 'base64');
+
+    // Derive key from master key and salt
+    const key = deriveKey(masterKey, salt);
+
+    // Create decipher and decrypt
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } else {
     throw new Error(`Unsupported encryption version: ${version}`);
   }
-
-  const parts = ciphertext.split(':');
-  if (parts.length !== 5) {
-    throw new Error('Invalid encrypted data format');
-  }
-
-  const [, saltB64, ivB64, authTagB64, encryptedB64] = parts;
-
-  // Decode components
-  const salt = Buffer.from(saltB64, 'base64');
-  const iv = Buffer.from(ivB64, 'base64');
-  const authTag = Buffer.from(authTagB64, 'base64');
-  const encrypted = Buffer.from(encryptedB64, 'base64');
-
-  // Derive key from master key and salt
-  const key = deriveKey(config.masterKey, salt);
-
-  // Create decipher and decrypt
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString('utf8');
 }
 
 /**
- * Check if a string is encrypted
+ * Check if a string is encrypted (v1 or v2 format)
  */
 export function isEncrypted(value: string): boolean {
-  return value?.startsWith('v1:') && value.split(':').length === 5;
+  if (!value) return false;
+  const parts = value.split(':');
+  // v1 format: 5 parts (v1:salt:iv:authTag:ciphertext)
+  if (value.startsWith('v1:') && parts.length === 5) return true;
+  // v2 format: 6 parts (v2:keyId:salt:iv:authTag:ciphertext)
+  if (value.startsWith('v2:') && parts.length === 6) return true;
+  return false;
+}
+
+/**
+ * Get the key ID from an encrypted value (v2 only, returns null for v1)
+ */
+export function getEncryptedKeyId(value: string): string | null {
+  if (!value || !isEncrypted(value)) return null;
+  if (value.startsWith('v2:')) {
+    return value.split(':')[1];
+  }
+  return null;
+}
+
+/**
+ * Check if a value needs re-encryption (encrypted with a different key)
+ */
+export function needsReEncryption(value: string, currentKeyId: string): boolean {
+  if (!isEncrypted(value)) return false;
+  // v1 values always need re-encryption to add key ID
+  if (value.startsWith('v1:')) return true;
+  // v2 values need re-encryption if key ID differs
+  const encryptedKeyId = getEncryptedKeyId(value);
+  return encryptedKeyId !== currentKeyId;
 }
 
 /**
