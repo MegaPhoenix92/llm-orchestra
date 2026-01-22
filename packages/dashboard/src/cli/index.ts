@@ -13,6 +13,12 @@ import { statsCommand } from './commands/stats.js';
 import { tracesCommand } from './commands/traces.js';
 import { costsCommand } from './commands/costs.js';
 import { healthCommand } from './commands/health.js';
+import {
+  statusCommand as encryptStatusCommand,
+  migrateCommand as encryptMigrateCommand,
+  validateCommand as encryptValidateCommand,
+  type EncryptOptions,
+} from './commands/encrypt.js';
 import { validateCloudOptions, type ApiOptions } from './api.js';
 
 const DEFAULT_SERVER_URL = 'http://localhost:3737';
@@ -103,6 +109,60 @@ program
     console.log('');
   });
 
+// Encryption management commands
+const encryptProgram = program
+  .command('encrypt')
+  .description('Manage encryption at rest for sensitive data');
+
+/**
+ * Extract encryption options from command options
+ */
+function getEncryptOptions(cmdOptions: Record<string, unknown>): EncryptOptions {
+  return {
+    databaseUrl:
+      (cmdOptions.databaseUrl as string | undefined) || process.env.DATABASE_URL || '',
+    masterKey:
+      (cmdOptions.masterKey as string | undefined) || process.env.ENCRYPTION_MASTER_KEY || '',
+    batchSize: cmdOptions.batchSize ? parseInt(cmdOptions.batchSize as string, 10) : 100,
+    dryRun: cmdOptions.dryRun as boolean | undefined,
+    verbose: cmdOptions.verbose as boolean | undefined,
+  };
+}
+
+encryptProgram
+  .command('status')
+  .description('Show encryption status report for all sensitive data')
+  .option('-d, --database-url <url>', 'PostgreSQL connection URL')
+  .action(async (cmdOptions) => {
+    const options = getEncryptOptions(cmdOptions);
+    await encryptStatusCommand(options);
+  });
+
+encryptProgram
+  .command('migrate')
+  .description('Encrypt existing unencrypted data in the database')
+  .option('-d, --database-url <url>', 'PostgreSQL connection URL')
+  .option('-k, --master-key <key>', 'Master encryption key (min 32 characters)')
+  .option('-b, --batch-size <n>', 'Records to process per batch', '100')
+  .option('--dry-run', 'Preview changes without applying them')
+  .option('-v, --verbose', 'Show detailed progress')
+  .action(async (cmdOptions) => {
+    const options = getEncryptOptions(cmdOptions);
+    await encryptMigrateCommand(options);
+  });
+
+encryptProgram
+  .command('validate')
+  .description('Verify all encrypted data can be decrypted')
+  .option('-d, --database-url <url>', 'PostgreSQL connection URL')
+  .option('-k, --master-key <key>', 'Master encryption key')
+  .option('-b, --batch-size <n>', 'Records to process per batch', '100')
+  .option('-v, --verbose', 'Show detailed validation output')
+  .action(async (cmdOptions) => {
+    const options = getEncryptOptions(cmdOptions);
+    await encryptValidateCommand(options);
+  });
+
 // Help text for cloud usage
 program.addHelpText(
   'after',
@@ -114,9 +174,20 @@ ${chalk.bold('Cloud Usage:')}
   $ orchestra-dashboard traces -s https://cloud.example.com -k orch_xxx -p prj_xxx
 
 ${chalk.bold('Environment Variables:')}
-  ORCHESTRA_SERVER     Default server URL
-  ORCHESTRA_API_KEY    Default API key
-  ORCHESTRA_PROJECT_ID Default project ID
+  ORCHESTRA_SERVER       Default server URL
+  ORCHESTRA_API_KEY      Default API key
+  ORCHESTRA_PROJECT_ID   Default project ID
+  DATABASE_URL           PostgreSQL connection URL (for encrypt commands)
+  ENCRYPTION_MASTER_KEY  Encryption master key (for encrypt commands)
+
+${chalk.bold('Encryption Commands:')}
+  Manage encryption at rest for sensitive database data:
+
+  $ orchestra-dashboard encrypt status -d postgres://...
+  $ orchestra-dashboard encrypt migrate -d postgres://... -k <master-key>
+  $ orchestra-dashboard encrypt validate -d postgres://... -k <master-key>
+
+  Use --dry-run with migrate to preview changes without applying them.
 `
 );
 
