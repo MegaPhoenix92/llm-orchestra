@@ -316,6 +316,51 @@ export const webhookDeliveries = pgTable('webhook_deliveries', {
 export type WebhookDelivery = InferSelectModel<typeof webhookDeliveries>;
 export type NewWebhookDelivery = InferInsertModel<typeof webhookDeliveries>;
 
+/**
+ * Notification Channels - Multi-channel notification destinations (Slack, Email, PagerDuty)
+ */
+export const notificationChannels = pgTable('notification_channels', {
+  id: text('id').primaryKey(), // prefix 'nch_'
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  type: text('type', { enum: ['slack', 'email', 'pagerduty'] }).notNull(),
+  config: jsonb('config').notNull(), // Encrypted secrets (webhook URLs, API keys, etc.)
+  enabled: boolean('enabled').default(true).notNull(),
+  events: text('events').array().default([]), // Event types to receive
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type NotificationChannel = InferSelectModel<typeof notificationChannels>;
+export type NewNotificationChannel = InferInsertModel<typeof notificationChannels>;
+
+/**
+ * Notification Deliveries - Delivery attempts and status for notification channels
+ */
+export const notificationDeliveries = pgTable('notification_deliveries', {
+  id: text('id').primaryKey(), // prefix 'nfd_'
+  channelId: text('channel_id')
+    .notNull()
+    .references(() => notificationChannels.id, { onDelete: 'cascade' }),
+  eventId: text('event_id'), // Optional reference to alert event
+  eventType: text('event_type').notNull(),
+  payload: jsonb('payload'),
+  status: text('status', { enum: ['pending', 'success', 'failed'] }).default('pending').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  nextAttemptAt: timestamp('next_attempt_at').defaultNow().notNull(),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  responseCode: integer('response_code'),
+  externalId: text('external_id'), // Slack ts, PagerDuty dedup key
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type NotificationDelivery = InferSelectModel<typeof notificationDeliveries>;
+export type NewNotificationDelivery = InferInsertModel<typeof notificationDeliveries>;
+
 // ============================================================================
 // Observability Tables
 // ============================================================================
@@ -459,6 +504,8 @@ export const schema = {
   alertEvents,
   webhooks,
   webhookDeliveries,
+  notificationChannels,
+  notificationDeliveries,
   // Observability
   traces,
   spans,

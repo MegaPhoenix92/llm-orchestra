@@ -20,10 +20,14 @@ import {
   alertEvents,
   webhooks,
   webhookDeliveries,
+  notificationChannels,
+  notificationDeliveries,
 } from '../../db/schema.js';
+import { validateChannelConfig, getNotificationAdapter } from '../../notifications/registry.js';
 import {
   generateApiKey,
   encryptIfNeeded,
+  decryptIfNeeded,
   validateEncryptionConfig,
   type EncryptionConfig,
 } from '../../auth/index.js';
@@ -46,6 +50,138 @@ const ALLOWED_ALERT_TYPES = new Set(['cost_threshold', 'error_rate']);
 const ALLOWED_ALERT_STATUSES = new Set(['triggered', 'resolved']);
 const ALLOWED_WEBHOOK_EVENTS = new Set(['alert.triggered']);
 const ALLOWED_WEBHOOK_STATUSES = new Set(['pending', 'success', 'failed']);
+const ALLOWED_CHANNEL_TYPES = new Set(['slack', 'email', 'pagerduty']);
+const ALLOWED_NOTIFICATION_STATUSES = new Set(['pending', 'success', 'failed']);
+
+/**
+ * Sensitive fields by channel type that must be encrypted at rest
+ * and redacted in API responses
+ */
+const SENSITIVE_CHANNEL_FIELDS: Record<string, string[]> = {
+  slack: ['webhookUrl'],
+  email: ['apiKey', 'smtpPassword', 'smtpUser'],
+  pagerduty: ['routingKey'],
+};
+
+/**
+ * Placeholder value used when redacting sensitive fields in API responses
+ */
+const REDACTED_VALUE = '********';
+
+/**
+ * Encrypt sensitive fields in a notification channel config before storage
+ * @param type - The channel type (slack, email, pagerduty)
+ * @param config - The raw config object containing sensitive values
+ * @param encryption - The encryption configuration (optional)
+ * @returns A new config object with sensitive fields encrypted
+ */
+function encryptChannelConfig(
+  type: string,
+  config: Record<string, unknown>,
+  encryption?: EncryptionConfig
+): Record<string, unknown> {
+  if (!encryption || !validateEncryptionConfig(encryption)) {
+    return config;
+  }
+
+  const sensitiveFields = SENSITIVE_CHANNEL_FIELDS[type] || [];
+  const encrypted = { ...config };
+
+  for (const field of sensitiveFields) {
+    const value = encrypted[field];
+    if (value && typeof value === 'string' && value.length > 0) {
+      encrypted[field] = encryptIfNeeded(value, encryption);
+    }
+  }
+
+  return encrypted;
+}
+
+/**
+ * Decrypt sensitive fields in a notification channel config before use
+ * @param type - The channel type (slack, email, pagerduty)
+ * @param config - The config object with potentially encrypted values
+ * @param encryption - The encryption configuration (optional)
+ * @returns A new config object with sensitive fields decrypted
+ */
+function decryptChannelConfig(
+  type: string,
+  config: Record<string, unknown>,
+  encryption?: EncryptionConfig
+): Record<string, unknown> {
+  if (!encryption || !validateEncryptionConfig(encryption)) {
+    return config;
+  }
+
+  const sensitiveFields = SENSITIVE_CHANNEL_FIELDS[type] || [];
+  const decrypted = { ...config };
+
+  for (const field of sensitiveFields) {
+    const value = decrypted[field];
+    if (value && typeof value === 'string' && value.length > 0) {
+      decrypted[field] = decryptIfNeeded(value, encryption);
+    }
+  }
+
+  return decrypted;
+}
+
+/**
+ * Redact sensitive fields in a notification channel config for API responses
+ * Never returns raw secrets - replaces them with placeholder value
+ * @param type - The channel type (slack, email, pagerduty)
+ * @param config - The config object (may contain encrypted or plaintext values)
+ * @returns A new config object with sensitive fields replaced with redacted placeholder
+ */
+function redactChannelConfig(
+  type: string,
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  const sensitiveFields = SENSITIVE_CHANNEL_FIELDS[type] || [];
+  const redacted = { ...config };
+
+  for (const field of sensitiveFields) {
+    if (redacted[field] !== undefined && redacted[field] !== null) {
+      redacted[field] = REDACTED_VALUE;
+    }
+  }
+
+  return redacted;
+}
+
+/**
+ * SECURITY: Merge new channel config with existing config, preserving encrypted values
+ * when the new value is the redacted placeholder.
+ *
+ * This prevents a common vulnerability where:
+ * 1. Client GETs a channel (sensitive fields are redacted to "********")
+ * 2. Client modifies non-sensitive fields
+ * 3. Client PUTs the response back (with "********" still in sensitive fields)
+ * 4. Without this merge, "********" would overwrite the real encrypted secret
+ *
+ * @param type - The channel type (slack, email, pagerduty)
+ * @param existingConfig - The existing config from database (contains encrypted values)
+ * @param newConfig - The new config from client request (may contain redacted placeholders)
+ * @returns A merged config with original encrypted values preserved for redacted fields
+ */
+function mergeChannelConfig(
+  type: string,
+  existingConfig: Record<string, unknown>,
+  newConfig: Record<string, unknown>
+): Record<string, unknown> {
+  const sensitiveFields = SENSITIVE_CHANNEL_FIELDS[type] || [];
+  const merged = { ...newConfig };
+
+  for (const field of sensitiveFields) {
+    // If the new value is the redacted placeholder, keep the existing encrypted value
+    // This prevents overwriting real secrets with the placeholder
+    if (merged[field] === REDACTED_VALUE) {
+      merged[field] = existingConfig[field];
+    }
+  }
+
+  return merged;
+}
 
 function isValidWebhookUrl(value: string): boolean {
   try {
@@ -1848,6 +1984,453 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
     } catch (error) {
       console.error('List webhook deliveries error:', error);
       return c.json({ error: 'Failed to list webhook deliveries' }, 500);
+    }
+  });
+
+  // ============================================================================
+  // Notification Channels
+  // ============================================================================
+
+  /**
+   * GET /api/admin/notification-channels
+   * List notification channels for a project
+   * Query param: projectId (required)
+   */
+  admin.get('/notification-channels', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+
+      if (!projectId) {
+        return c.json({ error: 'projectId is required' }, 400);
+      }
+
+      const permission = await requireProjectPermission(db, userId, projectId, 'notifications:read');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      const channels = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.projectId, projectId))
+        .orderBy(desc(notificationChannels.createdAt));
+
+      // Redact sensitive fields in config before returning - never expose raw secrets
+      const redactedChannels = channels.map((ch) => ({
+        ...ch,
+        config: redactChannelConfig(ch.type, ch.config as Record<string, unknown>),
+      }));
+
+      return c.json({ channels: redactedChannels });
+    } catch (error) {
+      console.error('List notification channels error:', error);
+      return c.json({ error: 'Failed to list notification channels' }, 500);
+    }
+  });
+
+  /**
+   * POST /api/admin/notification-channels
+   * Create a new notification channel
+   */
+  admin.post('/notification-channels', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const body = await c.req.json();
+      const { projectId, name, type, config, enabled = true, events = [] } = body;
+
+      if (!projectId || !name || !type || !config) {
+        return c.json({ error: 'projectId, name, type, and config are required' }, 400);
+      }
+
+      if (!ALLOWED_CHANNEL_TYPES.has(type)) {
+        return c.json({ error: 'type must be one of: slack, email, pagerduty' }, 400);
+      }
+
+      const permission = await requireProjectPermission(db, userId, projectId, 'notifications:manage');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      // Validate config
+      const validationErrors = validateChannelConfig(type, config);
+      if (validationErrors.length > 0) {
+        return c.json({ error: 'Invalid config', details: validationErrors }, 400);
+      }
+
+      const now = new Date();
+      const id = `nch_${nanoid(21)}`;
+
+      // Encrypt sensitive fields in config before storage
+      const encryptedConfig = encryptChannelConfig(type, config as Record<string, unknown>, encryption);
+
+      await db.insert(notificationChannels).values({
+        id,
+        projectId,
+        name: typeof name === 'string' ? name.trim() : name,
+        type,
+        config: encryptedConfig,
+        enabled,
+        events: Array.isArray(events) ? events : [],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'notification_channel.create',
+        resourceType: 'notification_channel',
+        resourceId: id,
+        ip,
+        userAgent,
+        metadata: { name, type, events },
+      });
+
+      // Return redacted config in response - never expose raw secrets
+      const redactedConfig = redactChannelConfig(type, config as Record<string, unknown>);
+
+      return c.json({
+        channel: {
+          id,
+          projectId,
+          name: typeof name === 'string' ? name.trim() : name,
+          type,
+          config: redactedConfig,
+          enabled,
+          events: Array.isArray(events) ? events : [],
+          createdAt: now,
+        },
+      });
+    } catch (error) {
+      console.error('Create notification channel error:', error);
+      return c.json({ error: 'Failed to create notification channel' }, 500);
+    }
+  });
+
+  /**
+   * GET /api/admin/notification-channels/:id
+   * Get a notification channel by ID
+   */
+  admin.get('/notification-channels/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const channelId = c.req.param('id');
+
+      const channelResults = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.id, channelId))
+        .limit(1);
+
+      if (channelResults.length === 0) {
+        return c.json({ error: 'Channel not found' }, 404);
+      }
+
+      const channel = channelResults[0];
+
+      const permission = await requireProjectPermission(db, userId, channel.projectId, 'notifications:read');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      // Redact sensitive fields in config before returning - never expose raw secrets
+      const redactedChannel = {
+        ...channel,
+        config: redactChannelConfig(channel.type, channel.config as Record<string, unknown>),
+      };
+
+      return c.json({ channel: redactedChannel });
+    } catch (error) {
+      console.error('Get notification channel error:', error);
+      return c.json({ error: 'Failed to get notification channel' }, 500);
+    }
+  });
+
+  /**
+   * PUT /api/admin/notification-channels/:id
+   * Update a notification channel
+   */
+  admin.put('/notification-channels/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const channelId = c.req.param('id');
+      const body = await c.req.json();
+
+      const channelResults = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.id, channelId))
+        .limit(1);
+
+      if (channelResults.length === 0) {
+        return c.json({ error: 'Channel not found' }, 404);
+      }
+
+      const channel = channelResults[0];
+
+      const permission = await requireProjectPermission(db, userId, channel.projectId, 'notifications:manage');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      const now = new Date();
+      const updates: Record<string, unknown> = { updatedAt: now };
+
+      if (body.name !== undefined) {
+        updates.name = typeof body.name === 'string' ? body.name.trim() : body.name;
+      }
+
+      // Channel type cannot be changed after creation
+      if (body.type && body.type !== channel.type) {
+        return c.json({ error: 'Channel type cannot be changed after creation' }, 400);
+      }
+
+      // Handle config update with proper validation order:
+      // 1. Decrypt existing -> 2. Merge (replaces placeholders) -> 3. Validate merged -> 4. Encrypt
+      if (body.config !== undefined) {
+        // Don't allow null or empty config to replace existing valid config
+        if (body.config === null || (typeof body.config === 'object' && Object.keys(body.config).length === 0)) {
+          return c.json({ error: 'config cannot be null or empty; omit the field to keep existing config' }, 400);
+        }
+
+        const effectiveType = channel.type;
+
+        // Step 1: Decrypt existing config to get real values for merge
+        const decryptedExistingConfig = decryptChannelConfig(
+          channel.type,
+          channel.config as Record<string, unknown>,
+          encryption
+        );
+
+        // Step 2: Merge new config with decrypted existing config
+        // This replaces "********" placeholders with real values from existing config
+        const mergedConfig = mergeChannelConfig(
+          effectiveType,
+          decryptedExistingConfig,
+          body.config as Record<string, unknown>
+        );
+
+        // Step 3: Validate the merged config (now has real values, not placeholders)
+        const validationErrors = validateChannelConfig(effectiveType, mergedConfig);
+        if (validationErrors.length > 0) {
+          return c.json({ error: 'Invalid config', details: validationErrors }, 400);
+        }
+
+        // Step 4: Encrypt sensitive fields in merged config before storage
+        updates.config = encryptChannelConfig(effectiveType, mergedConfig, encryption);
+      }
+      if (body.enabled !== undefined) updates.enabled = body.enabled;
+      if (body.events !== undefined) updates.events = body.events;
+
+      await db
+        .update(notificationChannels)
+        .set(updates)
+        .where(eq(notificationChannels.id, channelId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: channel.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'notification_channel.update',
+        resourceType: 'notification_channel',
+        resourceId: channelId,
+        ip,
+        userAgent,
+        metadata: updates,
+      });
+
+      return c.json({ success: true });
+    } catch (error) {
+      console.error('Update notification channel error:', error);
+      return c.json({ error: 'Failed to update notification channel' }, 500);
+    }
+  });
+
+  /**
+   * DELETE /api/admin/notification-channels/:id
+   * Delete a notification channel
+   */
+  admin.delete('/notification-channels/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const channelId = c.req.param('id');
+
+      const channelResults = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.id, channelId))
+        .limit(1);
+
+      if (channelResults.length === 0) {
+        return c.json({ error: 'Channel not found' }, 404);
+      }
+
+      const channel = channelResults[0];
+
+      const permission = await requireProjectPermission(db, userId, channel.projectId, 'notifications:manage');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      await db
+        .delete(notificationChannels)
+        .where(eq(notificationChannels.id, channelId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: channel.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'notification_channel.delete',
+        resourceType: 'notification_channel',
+        resourceId: channelId,
+        ip,
+        userAgent,
+        metadata: { name: channel.name, type: channel.type },
+      });
+
+      return c.json({ success: true });
+    } catch (error) {
+      console.error('Delete notification channel error:', error);
+      return c.json({ error: 'Failed to delete notification channel' }, 500);
+    }
+  });
+
+  /**
+   * POST /api/admin/notification-channels/:id/test
+   * Test a notification channel connection
+   */
+  admin.post('/notification-channels/:id/test', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const channelId = c.req.param('id');
+
+      const channelResults = await db
+        .select()
+        .from(notificationChannels)
+        .where(eq(notificationChannels.id, channelId))
+        .limit(1);
+
+      if (channelResults.length === 0) {
+        return c.json({ error: 'Channel not found' }, 404);
+      }
+
+      const channel = channelResults[0];
+
+      const permission = await requireProjectPermission(db, userId, channel.projectId, 'notifications:manage');
+      if (!permission) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+
+      // Decrypt config before passing to adapter for testing
+      const decryptedConfig = decryptChannelConfig(
+        channel.type,
+        channel.config as Record<string, unknown>,
+        encryption
+      );
+      const channelWithDecryptedConfig = {
+        ...channel,
+        config: decryptedConfig,
+      };
+
+      const adapter = getNotificationAdapter(channel.type as 'slack' | 'email' | 'pagerduty');
+      const result = await adapter.testConnection(channelWithDecryptedConfig);
+
+      return c.json({
+        success: result.success,
+        error: result.error,
+        statusCode: result.statusCode,
+      });
+    } catch (error) {
+      console.error('Test notification channel error:', error);
+      return c.json({ error: 'Failed to test notification channel' }, 500);
+    }
+  });
+
+  /**
+   * GET /api/admin/notification-deliveries
+   * List notification deliveries
+   * Query params: projectId or channelId (at least one required), status, limit
+   */
+  admin.get('/notification-deliveries', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+      const channelId = c.req.query('channelId');
+      const status = c.req.query('status');
+      const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+
+      if (!projectId && !channelId) {
+        return c.json({ error: 'projectId or channelId is required' }, 400);
+      }
+
+      // Build conditions
+      const conditions = [];
+
+      if (channelId) {
+        // Verify access to channel's project
+        const channelResults = await db
+          .select()
+          .from(notificationChannels)
+          .where(eq(notificationChannels.id, channelId))
+          .limit(1);
+
+        if (channelResults.length === 0) {
+          return c.json({ error: 'Channel not found' }, 404);
+        }
+
+        const channel = channelResults[0];
+
+        const permission = await requireProjectPermission(db, userId, channel.projectId, 'notifications:read');
+        if (!permission) {
+          return c.json({ error: 'Access denied' }, 403);
+        }
+
+        conditions.push(eq(notificationDeliveries.channelId, channelId));
+      } else if (projectId) {
+        const permission = await requireProjectPermission(db, userId, projectId, 'notifications:read');
+        if (!permission) {
+          return c.json({ error: 'Access denied' }, 403);
+        }
+
+        conditions.push(eq(notificationChannels.projectId, projectId));
+      }
+
+      if (status && ALLOWED_NOTIFICATION_STATUSES.has(status)) {
+        conditions.push(eq(notificationDeliveries.status, status as 'pending' | 'success' | 'failed'));
+      }
+
+      const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+      const deliveries = await db
+        .select({
+          delivery: notificationDeliveries,
+          channelName: notificationChannels.name,
+          channelType: notificationChannels.type,
+        })
+        .from(notificationDeliveries)
+        .innerJoin(notificationChannels, eq(notificationDeliveries.channelId, notificationChannels.id))
+        .where(whereClause)
+        .orderBy(desc(notificationDeliveries.createdAt))
+        .limit(limit);
+
+      return c.json({
+        deliveries: deliveries.map((d) => ({
+          ...d.delivery,
+          channelName: d.channelName,
+          channelType: d.channelType,
+        })),
+      });
+    } catch (error) {
+      console.error('List notification deliveries error:', error);
+      return c.json({ error: 'Failed to list notification deliveries' }, 500);
     }
   });
 

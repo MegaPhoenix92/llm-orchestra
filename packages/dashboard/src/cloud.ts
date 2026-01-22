@@ -20,6 +20,7 @@ import { createPageRoutes } from './server/routes/pages.js';
 import { createSsoRoutes } from './server/routes/sso.js';
 import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
 import { startWebhookWorker } from './webhooks/dispatcher.js';
+import { startNotificationWorker, stopNotificationWorker } from './notifications/dispatcher.js';
 import { isSsoEnabled, type SsoConfig } from './auth/sso.js';
 import { validateEncryptionConfig, type EncryptionConfig } from './auth/encryption.js';
 import type { Pool } from 'pg';
@@ -1072,6 +1073,14 @@ export async function createCloudDashboard(
           },
           (info) => {
             stopWebhookWorker = startWebhookWorker({ db, encryption: options.encryption });
+            startNotificationWorker(db, {
+              intervalMs: 5000,
+              batchSize: 25,
+              maxAttempts: 5,
+              baseBackoffMs: 15000,
+              encryption: options.encryption,
+            });
+            console.log('Notification worker started');
             const encryptionStatus = validateEncryptionConfig(options.encryption)
               ? '🔐 Encryption at rest: enabled'
               : '⚠️  Encryption at rest: disabled';
@@ -1097,6 +1106,8 @@ export async function createCloudDashboard(
         stopWebhookWorker();
         stopWebhookWorker = null;
       }
+
+      stopNotificationWorker();
 
       if (server) {
         server.close();
