@@ -258,7 +258,7 @@ npm run dev -w llm-orchestra-dashboard
 
 | Service | Port | Description |
 |---------|------|-------------|
-| PostgreSQL | 5432 | Database for dashboard |
+| PostgreSQL | 5436 | Database for dashboard (mapped from container's 5432) |
 
 #### Environment Variables
 
@@ -266,7 +266,7 @@ Copy `.env.example` to `.env` and configure:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://orchestra:orchestra_dev@localhost:5432/llm_orchestra` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://orchestra:orchestra_dev@localhost:5436/llm_orchestra` |
 | `JWT_SECRET` | Secret for JWT tokens | (required) |
 | `ENCRYPTION_KEY` | Optional encryption for secrets at rest | (optional) |
 
