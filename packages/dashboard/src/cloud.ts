@@ -20,6 +20,11 @@ import { createPageRoutes } from './server/routes/pages.js';
 import { createSsoRoutes } from './server/routes/sso.js';
 import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
 import { isSsoEnabled, type SsoConfig } from './auth/sso.js';
+import {
+  validateEncryptionConfig,
+  generateEncryptionKey,
+  type EncryptionConfig,
+} from './auth/encryption.js';
 import type { Pool } from 'pg';
 
 // ============================================================================
@@ -43,6 +48,12 @@ export interface CloudDashboardOptions {
   };
   /** Azure AD SSO configuration (optional) */
   sso?: SsoConfig;
+  /**
+   * Encryption at rest configuration (optional)
+   * When enabled, sensitive data (emails, names, etc.) is encrypted before storage.
+   * Requires a 32+ character master key for AES-256-GCM encryption.
+   */
+  encryption?: EncryptionConfig;
   /** Open browser on start (default: false) */
   open?: boolean;
 }
@@ -576,11 +587,14 @@ export async function createCloudDashboard(
   // ============================================================================
 
   // Authentication routes (login, register, refresh, etc.)
-  app.route('/api/auth', createAuthRoutes({ db, jwtSecret }));
+  app.route('/api/auth', createAuthRoutes({ db, jwtSecret, encryption: options.encryption }));
 
   // SSO routes (Azure AD / OIDC)
   if (options.sso && isSsoEnabled(options.sso)) {
-    app.route('/api/auth/sso', createSsoRoutes({ db, jwtSecret, sso: options.sso }));
+    app.route(
+      '/api/auth/sso',
+      createSsoRoutes({ db, jwtSecret, sso: options.sso, encryption: options.encryption })
+    );
   }
 
   // ============================================================================
@@ -1059,7 +1073,16 @@ export async function createCloudDashboard(
             hostname,
           },
           (info) => {
-            console.log(`\n🎭 LLM Orchestra Cloud Dashboard running at http://${hostname}:${info.port}\n`);
+            const encryptionStatus = validateEncryptionConfig(options.encryption)
+              ? '🔐 Encryption at rest: enabled'
+              : '⚠️  Encryption at rest: disabled';
+            const ssoStatus = isSsoEnabled(options.sso)
+              ? '🔑 Azure AD SSO: enabled'
+              : '';
+            console.log(`\n🎭 LLM Orchestra Cloud Dashboard running at http://${hostname}:${info.port}`);
+            console.log(`   ${encryptionStatus}`);
+            if (ssoStatus) console.log(`   ${ssoStatus}`);
+            console.log('');
 
             if (options.open) {
               import('open').then((m) => m.default(`http://${hostname}:${info.port}`));

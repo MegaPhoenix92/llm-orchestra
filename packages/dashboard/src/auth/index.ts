@@ -45,3 +45,20 @@ export {
   type SsoUserInfo,
   type OidcClientConfig,
 } from './sso.js';
+
+// Encryption at rest utilities
+export {
+  encrypt,
+  decrypt,
+  isEncrypted,
+  encryptIfNeeded,
+  decryptIfNeeded,
+  encryptJson,
+  decryptJson,
+  encryptFields,
+  decryptFields,
+  validateEncryptionConfig,
+  generateEncryptionKey,
+  clearKeyCache,
+  type EncryptionConfig,
+} from './encryption.js';

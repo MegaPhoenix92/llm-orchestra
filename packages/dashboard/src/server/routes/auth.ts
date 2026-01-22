@@ -9,7 +9,14 @@ import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import type { Database } from '../../db/index.js';
 import { users, organizations, orgMembers, sessions } from '../../db/schema.js';
-import { hashPassword, verifyPassword, generateTokenPair, verifyToken } from '../../auth/index.js';
+import {
+  hashPassword,
+  verifyPassword,
+  generateTokenPair,
+  verifyToken,
+  type EncryptionConfig,
+} from '../../auth/index.js';
+import { createEncryptionContext, hashEmailForLookup } from '../../db/encrypted-fields.js';
 import { generateSlug } from '../../utils/slug.js';
 import { createRateLimiter } from '../../utils/rate-limit.js';
 import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
@@ -17,6 +24,8 @@ import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 export interface AuthRoutesOptions {
   db: Database;
   jwtSecret: string;
+  /** Optional encryption configuration for sensitive data at rest */
+  encryption?: EncryptionConfig;
 }
 
 /** 7 days in milliseconds for refresh token expiration */
@@ -159,8 +168,11 @@ function extractBearerToken(authHeader: string | undefined): string | null {
  * @returns Hono router with auth endpoints
  */
 export function createAuthRoutes(options: AuthRoutesOptions): Hono {
-  const { db, jwtSecret } = options;
+  const { db, jwtSecret, encryption } = options;
   const auth = new Hono();
+
+  // Create encryption context for sensitive data
+  const enc = createEncryptionContext(encryption);
 
   /**
    * POST /api/auth/register
@@ -207,8 +219,11 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
         return c.json({ error: 'Password must be at least 8 characters long' }, 400);
       }
 
-      // Check if email already exists
-      const existingUser = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      // Check if email already exists (use hash for lookup when encryption is enabled)
+      const emailHash = enc.enabled ? hashEmailForLookup(email) : null;
+      const existingUser = emailHash
+        ? await db.select().from(users).where(eq(users.emailHash, emailHash)).limit(1)
+        : await db.select().from(users).where(eq(users.email, email)).limit(1);
 
       if (existingUser.length > 0) {
         return c.json({ error: 'A user with this email already exists' }, 409);
@@ -246,15 +261,17 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
       // Wrap all database operations in a transaction to ensure atomicity
       // If any operation fails, all changes are rolled back
       await db.transaction(async (tx) => {
-        // Create user
-        await tx.insert(users).values({
+        // Create user (encrypt sensitive fields if encryption is enabled)
+        const userData = enc.encryptUser({
           id: userId,
           email,
+          emailHash: emailHash || undefined,
           passwordHash,
           name: name || null,
           createdAt: now,
           updatedAt: now,
         });
+        await tx.insert(users).values(userData);
 
         // Create organization
         await tx.insert(organizations).values({
@@ -354,14 +371,18 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
         return c.json({ error: 'Email and password are required' }, 400);
       }
 
-      // Find user by email
-      const userResults = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      // Find user by email (use hash for lookup when encryption is enabled)
+      const loginEmailHash = enc.enabled ? hashEmailForLookup(email) : null;
+      const userResults = loginEmailHash
+        ? await db.select().from(users).where(eq(users.emailHash, loginEmailHash)).limit(1)
+        : await db.select().from(users).where(eq(users.email, email)).limit(1);
 
       if (userResults.length === 0) {
         return c.json({ error: 'Invalid email or password' }, 401);
       }
 
-      const user = userResults[0];
+      // Decrypt user data if encryption is enabled
+      const user = enc.decryptUser(userResults[0]);
 
       // Verify password
       const isValid = await verifyPassword(password, user.passwordHash);
@@ -512,17 +533,18 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
       }
 
       // Get user info for new tokens
-      const userResults = await db
+      const refreshUserResults = await db
         .select()
         .from(users)
         .where(eq(users.id, session.userId))
         .limit(1);
 
-      if (userResults.length === 0) {
+      if (refreshUserResults.length === 0) {
         return c.json({ error: 'User not found' }, 401);
       }
 
-      const user = userResults[0];
+      // Decrypt user data if encryption is enabled
+      const user = enc.decryptUser(refreshUserResults[0]);
 
       // Generate new token pair
       const tokens = generateTokenPair({ userId: user.id, email: user.email }, jwtSecret);
@@ -597,7 +619,8 @@ export function createAuthRoutes(options: AuthRoutesOptions): Hono {
         return c.json({ error: 'User not found' }, 404);
       }
 
-      const user = userResults[0];
+      // Decrypt user data if encryption is enabled
+      const user = enc.decryptUser(userResults[0]);
 
       // Get user's organizations with roles
       const memberResults = await db
