@@ -23,6 +23,15 @@ dependencies = []
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.30.0"]
 google = ["google-generativeai>=0.5.0"]
+mistral = ["aiohttp>=3.9.0"]
+cohere = ["aiohttp>=3.9.0"]
+azure-openai = ["aiohttp>=3.9.0"]
+all = [
+  "openai>=1.0.0",
+  "anthropic>=0.30.0",
+  "google-generativeai>=0.5.0",
+  "aiohttp>=3.9.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

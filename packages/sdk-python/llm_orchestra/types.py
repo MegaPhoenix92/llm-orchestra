@@ -12,7 +12,7 @@ from typing import (
     TypedDict,
 )
 
-ProviderName = Literal["anthropic", "openai", "google", "mistral"]
+ProviderName = Literal["anthropic", "openai", "google", "mistral", "cohere", "azure-openai"]
 MessageRole = Literal["system", "user", "assistant", "tool"]
 
 
@@ -22,11 +22,19 @@ class ProviderCredentials(TypedDict, total=False):
     organizationId: str
 
 
+class AzureOpenAICredentials(TypedDict, total=False):
+    apiKey: str
+    baseUrl: str
+    apiVersion: str
+
+
 class ProvidersConfig(TypedDict, total=False):
     anthropic: ProviderCredentials
     openai: ProviderCredentials
     google: ProviderCredentials
     mistral: ProviderCredentials
+    cohere: ProviderCredentials
+    azure_openai: AzureOpenAICredentials
 
 
 class Message(TypedDict, total=False):
