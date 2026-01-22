@@ -131,3 +131,79 @@ curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
 - If you terminate TLS at a proxy, pass `X-Forwarded-Proto: https` so cookies
   are set with `Secure`.
 - The ingest endpoint enforces a 5 MB body limit and requires `ingest` scope.
+
+## Production Deployment Checklist
+
+Use this checklist before going live with a cloud dashboard deployment.
+
+### Pre-Deployment
+
+- [ ] PostgreSQL 14+ provisioned with SSL enabled
+- [ ] Database credentials stored in secrets manager (not in code)
+- [ ] `JWT_SECRET` generated (min 32 random characters)
+- [ ] `ENCRYPTION_MASTER_KEY` generated if using encryption at rest (min 32 chars)
+- [ ] TLS certificate provisioned for HTTPS
+- [ ] Firewall rules configured (DB not exposed to internet)
+
+### Environment Configuration
+
+```bash
+# Required
+DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+JWT_SECRET=<random-32+-chars>
+
+# Optional but recommended
+ENCRYPTION_MASTER_KEY=<random-32+-chars>
+PORT=3737
+HOSTNAME=0.0.0.0
+```
+
+### Security Configuration
+
+- [ ] Enable encryption at rest (see [docs/encryption-at-rest.md](encryption-at-rest.md))
+- [ ] Configure SSO if using Azure AD (set `SSO_*` environment variables)
+- [ ] Set up database connection pooling (PgBouncer recommended for high load)
+- [ ] Enable database audit logging
+- [ ] Configure backup schedule for PostgreSQL
+
+### Application Setup
+
+```ts
+import { createCloudDashboard } from 'llm-orchestra-dashboard';
+
+const dashboard = await createCloudDashboard({
+  port: Number(process.env.PORT || 3737),
+  hostname: process.env.HOSTNAME || '0.0.0.0',
+  database: { connectionString: process.env.DATABASE_URL! },
+  auth: { jwtSecret: process.env.JWT_SECRET! },
+  encryption: process.env.ENCRYPTION_MASTER_KEY
+    ? { masterKey: process.env.ENCRYPTION_MASTER_KEY }
+    : undefined,
+});
+```
+
+### Post-Deployment Verification
+
+- [ ] Health check passes: `curl https://your-domain/api/health`
+- [ ] Can register user and create organization
+- [ ] Can create project and API key
+- [ ] SDK can ingest traces with API key
+- [ ] Traces appear in dashboard
+- [ ] Encryption status shows all fields encrypted (if enabled):
+  ```bash
+  orchestra-dashboard encrypt status -d $DATABASE_URL
+  ```
+
+### Monitoring
+
+- [ ] Set up uptime monitoring for `/api/health`
+- [ ] Configure alerts for database connection failures
+- [ ] Monitor disk usage for PostgreSQL volume
+- [ ] Set up log aggregation (stdout/stderr)
+
+### Backup & Recovery
+
+- [ ] Database backups scheduled (daily recommended)
+- [ ] Backup encryption key stored separately from backups
+- [ ] Test restore procedure documented
+- [ ] `ENCRYPTION_MASTER_KEY` backed up securely (loss = data loss)
