@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-01-22
+
+### Documentation
+
+- Add links to GitHub dependency graph, Dependabot alerts, and Dependency Review docs
+
 ## [0.5.0] - 2026-01-22
 
 ### Added
@@ -172,7 +178,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | OpenAI | GPT-4, GPT-3.5-Turbo | Streaming, Tools |
 | Google | Gemini 1.5 Pro, Flash | Streaming, Tools |
 
-[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MegaPhoenix92/llm-orchestra/compare/v0.2.0...v0.3.0
