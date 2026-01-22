@@ -22,6 +22,10 @@ export type Permission =
   | 'api_key:create'
   | 'api_key:delete'
   | 'audit:read'
+  | 'alerts:read'
+  | 'alerts:manage'
+  | 'webhooks:read'
+  | 'webhooks:manage'
   | 'traces:read'
   | 'stats:read'
   | 'health:read'
@@ -41,6 +45,10 @@ const ALL_PERMISSIONS: Permission[] = [
   'api_key:create',
   'api_key:delete',
   'audit:read',
+  'alerts:read',
+  'alerts:manage',
+  'webhooks:read',
+  'webhooks:manage',
   'traces:read',
   'stats:read',
   'health:read',
@@ -57,6 +65,8 @@ const ROLE_PERMISSIONS: Record<Role, Set<Permission>> = {
     'api_key:read',
     'api_key:create',
     'api_key:delete',
+    'alerts:read',
+    'webhooks:read',
     'traces:read',
     'stats:read',
     'health:read',
@@ -65,6 +75,7 @@ const ROLE_PERMISSIONS: Record<Role, Set<Permission>> = {
   viewer: new Set([
     'org:read',
     'project:read',
+    'alerts:read',
     'traces:read',
     'stats:read',
     'health:read',

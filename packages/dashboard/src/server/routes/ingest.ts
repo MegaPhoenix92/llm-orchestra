@@ -9,6 +9,8 @@ import { and, eq } from 'drizzle-orm';
 import type { Database } from '../../db/index.js';
 import type { NewTrace, NewSpan, NewSpanEvent } from '../../db/schema.js';
 import { traces, spans, spanEvents, projects } from '../../db/schema.js';
+import { evaluateAlertRulesForProject } from '../../alerts/evaluator.js';
+import { enqueueAlertWebhookDeliveries } from '../../webhooks/dispatcher.js';
 import { createRateLimiter } from '../../utils/rate-limit.js';
 import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 
@@ -772,6 +774,17 @@ export function createIngestRoutes(options: IngestRoutesOptions): Hono {
           spanCount: normalizedSpans.length,
         },
       });
+
+      void (async () => {
+        try {
+          const triggers = await evaluateAlertRulesForProject(db, projectId);
+          if (triggers.length > 0) {
+            await enqueueAlertWebhookDeliveries(db, triggers);
+          }
+        } catch (alertError) {
+          console.error('Alert evaluation error:', alertError);
+        }
+      })();
 
       return c.json(
         {

@@ -502,6 +502,10 @@ describe('Module Imports', () => {
       expect(schemaModule.sessions).toBeDefined();
       expect(schemaModule.invitations).toBeDefined();
       expect(schemaModule.auditLogs).toBeDefined();
+      expect(schemaModule.alertRules).toBeDefined();
+      expect(schemaModule.alertEvents).toBeDefined();
+      expect(schemaModule.webhooks).toBeDefined();
+      expect(schemaModule.webhookDeliveries).toBeDefined();
 
       // Observability tables
       expect(schemaModule.traces).toBeDefined();
@@ -521,6 +525,10 @@ describe('Module Imports', () => {
       expect(schemaModule.schema.users).toBeDefined();
       expect(schemaModule.schema.projectMembers).toBeDefined();
       expect(schemaModule.schema.auditLogs).toBeDefined();
+      expect(schemaModule.schema.alertRules).toBeDefined();
+      expect(schemaModule.schema.alertEvents).toBeDefined();
+      expect(schemaModule.schema.webhooks).toBeDefined();
+      expect(schemaModule.schema.webhookDeliveries).toBeDefined();
       expect(schemaModule.schema.traces).toBeDefined();
       expect(schemaModule.schema.spans).toBeDefined();
     });

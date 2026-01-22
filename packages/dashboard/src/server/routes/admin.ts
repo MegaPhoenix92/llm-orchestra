@@ -16,8 +16,17 @@ import {
   invitations,
   users,
   auditLogs,
+  alertRules,
+  alertEvents,
+  webhooks,
+  webhookDeliveries,
 } from '../../db/schema.js';
-import { generateApiKey } from '../../auth/index.js';
+import {
+  generateApiKey,
+  encryptIfNeeded,
+  validateEncryptionConfig,
+  type EncryptionConfig,
+} from '../../auth/index.js';
 import { requireOrgPermission, requireProjectPermission, type Role } from '../../auth/rbac.js';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import { generateSlug } from '../../utils/slug.js';
@@ -26,12 +35,44 @@ import { getRequestMetadata, writeAuditLog } from '../../utils/audit.js';
 export interface AdminRoutesOptions {
   db: Database;
   jwtSecret: string;
+  encryption?: EncryptionConfig;
 }
 
 /**
  * Invitation expiration: 7 days
  */
 const INVITATION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const ALLOWED_ALERT_TYPES = new Set(['cost_threshold', 'error_rate']);
+const ALLOWED_WEBHOOK_EVENTS = new Set(['alert.triggered']);
+
+function isValidWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function parseWebhookEvents(raw: unknown): string[] | null {
+  if (raw === undefined) {
+    return ['alert.triggered'];
+  }
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const events = raw
+    .filter((event) => typeof event === 'string')
+    .map((event) => event.trim())
+    .filter((event) => event.length > 0);
+  if (events.length === 0) {
+    return null;
+  }
+  if (events.some((event) => !ALLOWED_WEBHOOK_EVENTS.has(event))) {
+    return null;
+  }
+  return Array.from(new Set(events));
+}
 
 /**
  * Create admin routes for the dashboard
@@ -39,7 +80,8 @@ const INVITATION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
  * @returns Hono router with admin endpoints
  */
 export function createAdminRoutes(options: AdminRoutesOptions): Hono {
-  const { db, jwtSecret } = options;
+  const { db, jwtSecret, encryption } = options;
+  const encryptionEnabled = validateEncryptionConfig(encryption);
   const admin = new Hono();
 
   // Apply JWT authentication middleware to all routes
@@ -852,6 +894,790 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
     } catch (error) {
       console.error('Delete API key error:', error);
       return c.json({ error: 'Failed to delete API key' }, 500);
+    }
+  });
+
+  // ============================================================================
+  // Alert Rule Routes
+  // ============================================================================
+
+  /**
+   * GET /api/admin/alerts
+   * List alert rules for a project
+   * Query param: projectId (required)
+   */
+  admin.get('/alerts', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+
+      if (!projectId) {
+        return c.json({ error: 'projectId query parameter is required' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'alerts:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
+      const rules = await db
+        .select()
+        .from(alertRules)
+        .where(eq(alertRules.projectId, projectId))
+        .orderBy(desc(alertRules.createdAt));
+
+      return c.json({
+        alertRules: rules.map((rule) => ({
+          ...rule,
+          threshold: Number(rule.threshold),
+        })),
+      });
+    } catch (error) {
+      console.error('List alert rules error:', error);
+      return c.json({ error: 'Failed to list alert rules' }, 500);
+    }
+  });
+
+  /**
+   * POST /api/admin/alerts
+   * Create a new alert rule
+   */
+  admin.post('/alerts', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const body = await c.req.json();
+      const { projectId, name, type, threshold, windowMinutes, minRequests, cooldownMinutes, enabled } =
+        body;
+
+      if (!projectId) {
+        return c.json({ error: 'projectId is required' }, 400);
+      }
+
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return c.json({ error: 'Alert name is required' }, 400);
+      }
+
+      if (!type || !ALLOWED_ALERT_TYPES.has(type)) {
+        return c.json({ error: 'Alert type must be cost_threshold or error_rate' }, 400);
+      }
+
+      const parsedThreshold = Number(threshold);
+      if (!Number.isFinite(parsedThreshold) || parsedThreshold <= 0) {
+        return c.json({ error: 'Threshold must be a positive number' }, 400);
+      }
+
+      if (type === 'error_rate' && (parsedThreshold <= 0 || parsedThreshold > 1)) {
+        return c.json({ error: 'Error rate threshold must be between 0 and 1' }, 400);
+      }
+
+      const parsedWindow = windowMinutes === undefined ? 60 : Number(windowMinutes);
+      if (!Number.isFinite(parsedWindow) || parsedWindow <= 0) {
+        return c.json({ error: 'windowMinutes must be a positive number' }, 400);
+      }
+
+      const parsedMinRequests = minRequests === undefined ? 1 : Number(minRequests);
+      if (!Number.isFinite(parsedMinRequests) || parsedMinRequests < 1) {
+        return c.json({ error: 'minRequests must be a positive number' }, 400);
+      }
+
+      const parsedCooldown = cooldownMinutes === undefined ? 15 : Number(cooldownMinutes);
+      if (!Number.isFinite(parsedCooldown) || parsedCooldown < 0) {
+        return c.json({ error: 'cooldownMinutes must be 0 or greater' }, 400);
+      }
+
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        return c.json({ error: 'enabled must be a boolean' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'alerts:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
+      }
+
+      const ruleId = `alr_${nanoid(21)}`;
+      const now = new Date();
+
+      await db.insert(alertRules).values({
+        id: ruleId,
+        projectId,
+        name: name.trim(),
+        type,
+        threshold: String(parsedThreshold),
+        windowMinutes: Math.round(parsedWindow),
+        minRequests: Math.round(parsedMinRequests),
+        cooldownMinutes: Math.round(parsedCooldown),
+        enabled: enabled === undefined ? true : Boolean(enabled),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'alert_rule.create',
+        resourceType: 'alert_rule',
+        resourceId: ruleId,
+        ip,
+        userAgent,
+        metadata: {
+          name: name.trim(),
+          type,
+          threshold: parsedThreshold,
+          windowMinutes: Math.round(parsedWindow),
+          minRequests: Math.round(parsedMinRequests),
+          cooldownMinutes: Math.round(parsedCooldown),
+        },
+      });
+
+      return c.json({
+        alertRule: {
+          id: ruleId,
+          projectId,
+          name: name.trim(),
+          type,
+          threshold: parsedThreshold,
+          windowMinutes: Math.round(parsedWindow),
+          minRequests: Math.round(parsedMinRequests),
+          cooldownMinutes: Math.round(parsedCooldown),
+          enabled: enabled === undefined ? true : Boolean(enabled),
+          lastTriggeredAt: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    } catch (error) {
+      console.error('Create alert rule error:', error);
+      return c.json({ error: 'Failed to create alert rule' }, 500);
+    }
+  });
+
+  /**
+   * PUT /api/admin/alerts/:id
+   * Update an alert rule
+   */
+  admin.put('/alerts/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const ruleId = c.req.param('id');
+      const body = await c.req.json();
+      const { name, type, threshold, windowMinutes, minRequests, cooldownMinutes, enabled } = body;
+
+      const existingRules = await db
+        .select()
+        .from(alertRules)
+        .where(eq(alertRules.id, ruleId))
+        .limit(1);
+
+      if (existingRules.length === 0) {
+        return c.json({ error: 'Alert rule not found' }, 404);
+      }
+
+      const existingRule = existingRules[0];
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        existingRule.projectId,
+        'alerts:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Alert rule not found or insufficient permissions' }, 403);
+      }
+
+      const updateData: Partial<{
+        name: string;
+        type: string;
+        threshold: string;
+        windowMinutes: number;
+        minRequests: number;
+        cooldownMinutes: number;
+        enabled: boolean;
+        updatedAt: Date;
+      }> = {
+        updatedAt: new Date(),
+      };
+
+      const nextType = type ?? existingRule.type;
+      if (type !== undefined) {
+        if (!ALLOWED_ALERT_TYPES.has(type)) {
+          return c.json({ error: 'Alert type must be cost_threshold or error_rate' }, 400);
+        }
+        updateData.type = type;
+      }
+
+      if (name !== undefined) {
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+          return c.json({ error: 'Alert name must be a non-empty string' }, 400);
+        }
+        updateData.name = name.trim();
+      }
+
+      if (threshold !== undefined) {
+        const parsedThreshold = Number(threshold);
+        if (!Number.isFinite(parsedThreshold) || parsedThreshold <= 0) {
+          return c.json({ error: 'Threshold must be a positive number' }, 400);
+        }
+        if (nextType === 'error_rate' && (parsedThreshold <= 0 || parsedThreshold > 1)) {
+          return c.json({ error: 'Error rate threshold must be between 0 and 1' }, 400);
+        }
+        updateData.threshold = String(parsedThreshold);
+      }
+
+      if (windowMinutes !== undefined) {
+        const parsedWindow = Number(windowMinutes);
+        if (!Number.isFinite(parsedWindow) || parsedWindow <= 0) {
+          return c.json({ error: 'windowMinutes must be a positive number' }, 400);
+        }
+        updateData.windowMinutes = Math.round(parsedWindow);
+      }
+
+      if (minRequests !== undefined) {
+        const parsedMinRequests = Number(minRequests);
+        if (!Number.isFinite(parsedMinRequests) || parsedMinRequests < 1) {
+          return c.json({ error: 'minRequests must be a positive number' }, 400);
+        }
+        updateData.minRequests = Math.round(parsedMinRequests);
+      }
+
+      if (cooldownMinutes !== undefined) {
+        const parsedCooldown = Number(cooldownMinutes);
+        if (!Number.isFinite(parsedCooldown) || parsedCooldown < 0) {
+          return c.json({ error: 'cooldownMinutes must be 0 or greater' }, 400);
+        }
+        updateData.cooldownMinutes = Math.round(parsedCooldown);
+      }
+
+      if (enabled !== undefined) {
+        if (typeof enabled !== 'boolean') {
+          return c.json({ error: 'enabled must be a boolean' }, 400);
+        }
+        updateData.enabled = enabled;
+      }
+
+      await db.update(alertRules).set(updateData).where(eq(alertRules.id, ruleId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: existingRule.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'alert_rule.update',
+        resourceType: 'alert_rule',
+        resourceId: ruleId,
+        ip,
+        userAgent,
+        metadata: updateData,
+      });
+
+      return c.json({ success: true });
+    } catch (error) {
+      console.error('Update alert rule error:', error);
+      return c.json({ error: 'Failed to update alert rule' }, 500);
+    }
+  });
+
+  /**
+   * DELETE /api/admin/alerts/:id
+   * Delete an alert rule
+   */
+  admin.delete('/alerts/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const ruleId = c.req.param('id');
+
+      const existingRules = await db
+        .select()
+        .from(alertRules)
+        .where(eq(alertRules.id, ruleId))
+        .limit(1);
+
+      if (existingRules.length === 0) {
+        return c.json({ error: 'Alert rule not found' }, 404);
+      }
+
+      const existingRule = existingRules[0];
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        existingRule.projectId,
+        'alerts:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Alert rule not found or insufficient permissions' }, 403);
+      }
+
+      await db.delete(alertRules).where(eq(alertRules.id, ruleId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: existingRule.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'alert_rule.delete',
+        resourceType: 'alert_rule',
+        resourceId: ruleId,
+        ip,
+        userAgent,
+        metadata: { name: existingRule.name, type: existingRule.type },
+      });
+
+      return c.json({ success: true, message: 'Alert rule deleted successfully' });
+    } catch (error) {
+      console.error('Delete alert rule error:', error);
+      return c.json({ error: 'Failed to delete alert rule' }, 500);
+    }
+  });
+
+  /**
+   * GET /api/admin/alert-events
+   * List alert events for a project
+   * Query params: projectId (required), ruleId, status, limit, offset
+   */
+  admin.get('/alert-events', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+
+      if (!projectId) {
+        return c.json({ error: 'projectId query parameter is required' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'alerts:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
+      const ruleId = c.req.query('ruleId');
+      const status = c.req.query('status');
+      const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+      const offset = parseInt(c.req.query('offset') || '0', 10);
+
+      const conditions = [eq(alertEvents.projectId, projectId)];
+      if (ruleId) conditions.push(eq(alertEvents.ruleId, ruleId));
+      if (status) conditions.push(eq(alertEvents.status, status));
+
+      const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+      const events = await db
+        .select()
+        .from(alertEvents)
+        .where(whereClause)
+        .orderBy(desc(alertEvents.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      return c.json({
+        alertEvents: events.map((event) => ({
+          ...event,
+          value: event.value === null ? null : Number(event.value),
+          threshold: event.threshold === null ? null : Number(event.threshold),
+        })),
+        limit,
+        offset,
+      });
+    } catch (error) {
+      console.error('List alert events error:', error);
+      return c.json({ error: 'Failed to list alert events' }, 500);
+    }
+  });
+
+  // ============================================================================
+  // Webhook Routes
+  // ============================================================================
+
+  /**
+   * GET /api/admin/webhooks
+   * List webhooks for a project
+   * Query param: projectId (required)
+   */
+  admin.get('/webhooks', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+
+      if (!projectId) {
+        return c.json({ error: 'projectId query parameter is required' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'webhooks:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
+      const hooks = await db
+        .select()
+        .from(webhooks)
+        .where(eq(webhooks.projectId, projectId))
+        .orderBy(desc(webhooks.createdAt));
+
+      return c.json({
+        webhooks: hooks.map((hook) => {
+          const { secret, ...rest } = hook;
+          return {
+            ...rest,
+            hasSecret: Boolean(secret),
+          };
+        }),
+      });
+    } catch (error) {
+      console.error('List webhooks error:', error);
+      return c.json({ error: 'Failed to list webhooks' }, 500);
+    }
+  });
+
+  /**
+   * POST /api/admin/webhooks
+   * Create a new webhook
+   */
+  admin.post('/webhooks', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const body = await c.req.json();
+      const { projectId, name, url, secret, events, enabled } = body;
+
+      if (!projectId) {
+        return c.json({ error: 'projectId is required' }, 400);
+      }
+
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return c.json({ error: 'Webhook name is required' }, 400);
+      }
+
+      if (!url || typeof url !== 'string' || !isValidWebhookUrl(url)) {
+        return c.json({ error: 'Webhook URL must be http or https' }, 400);
+      }
+
+      const parsedEvents = parseWebhookEvents(events);
+      if (!parsedEvents) {
+        return c.json({ error: 'Webhook events must include alert.triggered' }, 400);
+      }
+
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        return c.json({ error: 'enabled must be a boolean' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'webhooks:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or insufficient permissions' }, 403);
+      }
+
+      const secretValue =
+        typeof secret === 'string' && secret.trim().length > 0 ? secret.trim() : null;
+      const storedSecret =
+        secretValue && encryptionEnabled && encryption
+          ? encryptIfNeeded(secretValue, encryption)
+          : secretValue;
+
+      const webhookId = `whk_${nanoid(21)}`;
+      const now = new Date();
+
+      await db.insert(webhooks).values({
+        id: webhookId,
+        projectId,
+        name: name.trim(),
+        url,
+        secret: storedSecret,
+        events: parsedEvents,
+        enabled: enabled === undefined ? true : Boolean(enabled),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'webhook.create',
+        resourceType: 'webhook',
+        resourceId: webhookId,
+        ip,
+        userAgent,
+        metadata: { name: name.trim(), url, events: parsedEvents },
+      });
+
+      return c.json({
+        webhook: {
+          id: webhookId,
+          projectId,
+          name: name.trim(),
+          url,
+          events: parsedEvents,
+          enabled: enabled === undefined ? true : Boolean(enabled),
+          hasSecret: Boolean(storedSecret),
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    } catch (error) {
+      console.error('Create webhook error:', error);
+      return c.json({ error: 'Failed to create webhook' }, 500);
+    }
+  });
+
+  /**
+   * PUT /api/admin/webhooks/:id
+   * Update a webhook
+   */
+  admin.put('/webhooks/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const webhookId = c.req.param('id');
+      const body = await c.req.json();
+      const { name, url, secret, events, enabled } = body;
+
+      const existingHooks = await db
+        .select()
+        .from(webhooks)
+        .where(eq(webhooks.id, webhookId))
+        .limit(1);
+
+      if (existingHooks.length === 0) {
+        return c.json({ error: 'Webhook not found' }, 404);
+      }
+
+      const existingHook = existingHooks[0];
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        existingHook.projectId,
+        'webhooks:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Webhook not found or insufficient permissions' }, 403);
+      }
+
+      const updateData: Partial<{
+        name: string;
+        url: string;
+        secret: string | null;
+        events: string[];
+        enabled: boolean;
+        updatedAt: Date;
+      }> = {
+        updatedAt: new Date(),
+      };
+
+      if (name !== undefined) {
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+          return c.json({ error: 'Webhook name must be a non-empty string' }, 400);
+        }
+        updateData.name = name.trim();
+      }
+
+      if (url !== undefined) {
+        if (!url || typeof url !== 'string' || !isValidWebhookUrl(url)) {
+          return c.json({ error: 'Webhook URL must be http or https' }, 400);
+        }
+        updateData.url = url;
+      }
+
+      if (events !== undefined) {
+        const parsedEvents = parseWebhookEvents(events);
+        if (!parsedEvents) {
+          return c.json({ error: 'Webhook events must include alert.triggered' }, 400);
+        }
+        updateData.events = parsedEvents;
+      }
+
+      if (secret !== undefined) {
+        if (secret === null || (typeof secret === 'string' && secret.trim().length === 0)) {
+          updateData.secret = null;
+        } else if (typeof secret === 'string') {
+          updateData.secret =
+            encryptionEnabled && encryption
+              ? encryptIfNeeded(secret.trim(), encryption)
+              : secret.trim();
+        } else {
+          return c.json({ error: 'Webhook secret must be a string' }, 400);
+        }
+      }
+
+      if (enabled !== undefined) {
+        if (typeof enabled !== 'boolean') {
+          return c.json({ error: 'enabled must be a boolean' }, 400);
+        }
+        updateData.enabled = enabled;
+      }
+
+      await db.update(webhooks).set(updateData).where(eq(webhooks.id, webhookId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      const auditMetadata = { ...updateData };
+      if ('secret' in auditMetadata) {
+        delete auditMetadata.secret;
+      }
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: existingHook.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'webhook.update',
+        resourceType: 'webhook',
+        resourceId: webhookId,
+        ip,
+        userAgent,
+        metadata: auditMetadata,
+      });
+
+      return c.json({ success: true });
+    } catch (error) {
+      console.error('Update webhook error:', error);
+      return c.json({ error: 'Failed to update webhook' }, 500);
+    }
+  });
+
+  /**
+   * DELETE /api/admin/webhooks/:id
+   * Delete a webhook
+   */
+  admin.delete('/webhooks/:id', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const webhookId = c.req.param('id');
+
+      const existingHooks = await db
+        .select()
+        .from(webhooks)
+        .where(eq(webhooks.id, webhookId))
+        .limit(1);
+
+      if (existingHooks.length === 0) {
+        return c.json({ error: 'Webhook not found' }, 404);
+      }
+
+      const existingHook = existingHooks[0];
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        existingHook.projectId,
+        'webhooks:manage'
+      );
+      if (!permission) {
+        return c.json({ error: 'Webhook not found or insufficient permissions' }, 403);
+      }
+
+      await db.delete(webhooks).where(eq(webhooks.id, webhookId));
+
+      const { ip, userAgent } = getRequestMetadata(c);
+      await writeAuditLog(db, {
+        orgId: permission.orgId,
+        projectId: existingHook.projectId,
+        actorType: 'user',
+        actorId: userId,
+        action: 'webhook.delete',
+        resourceType: 'webhook',
+        resourceId: webhookId,
+        ip,
+        userAgent,
+        metadata: { name: existingHook.name, url: existingHook.url },
+      });
+
+      return c.json({ success: true, message: 'Webhook deleted successfully' });
+    } catch (error) {
+      console.error('Delete webhook error:', error);
+      return c.json({ error: 'Failed to delete webhook' }, 500);
+    }
+  });
+
+  /**
+   * GET /api/admin/webhook-deliveries
+   * List webhook delivery attempts for a project
+   * Query params: projectId (required), webhookId, status, limit, offset
+   */
+  admin.get('/webhook-deliveries', async (c) => {
+    try {
+      const userId = c.get('userId');
+      const projectId = c.req.query('projectId');
+
+      if (!projectId) {
+        return c.json({ error: 'projectId query parameter is required' }, 400);
+      }
+
+      const permission = await requireProjectPermission(
+        db,
+        userId,
+        projectId,
+        'webhooks:read'
+      );
+      if (!permission) {
+        return c.json({ error: 'Project not found or access denied' }, 404);
+      }
+
+      const webhookId = c.req.query('webhookId');
+      const status = c.req.query('status');
+      const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200);
+      const offset = parseInt(c.req.query('offset') || '0', 10);
+
+      const conditions = [eq(webhooks.projectId, projectId)];
+      if (webhookId) conditions.push(eq(webhookDeliveries.webhookId, webhookId));
+      if (status) conditions.push(eq(webhookDeliveries.status, status));
+
+      const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+      const deliveries = await db
+        .select({
+          id: webhookDeliveries.id,
+          webhookId: webhookDeliveries.webhookId,
+          eventId: webhookDeliveries.eventId,
+          eventType: webhookDeliveries.eventType,
+          payload: webhookDeliveries.payload,
+          status: webhookDeliveries.status,
+          attempts: webhookDeliveries.attempts,
+          nextAttemptAt: webhookDeliveries.nextAttemptAt,
+          lastAttemptAt: webhookDeliveries.lastAttemptAt,
+          responseCode: webhookDeliveries.responseCode,
+          error: webhookDeliveries.error,
+          createdAt: webhookDeliveries.createdAt,
+          updatedAt: webhookDeliveries.updatedAt,
+          webhookName: webhooks.name,
+          webhookUrl: webhooks.url,
+        })
+        .from(webhookDeliveries)
+        .innerJoin(webhooks, eq(webhooks.id, webhookDeliveries.webhookId))
+        .where(whereClause)
+        .orderBy(desc(webhookDeliveries.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      return c.json({ webhookDeliveries: deliveries, limit, offset });
+    } catch (error) {
+      console.error('List webhook deliveries error:', error);
+      return c.json({ error: 'Failed to list webhook deliveries' }, 500);
     }
   });
 

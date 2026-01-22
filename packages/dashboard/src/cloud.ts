@@ -19,6 +19,7 @@ import { createIngestRoutes } from './server/routes/ingest.js';
 import { createPageRoutes } from './server/routes/pages.js';
 import { createSsoRoutes } from './server/routes/sso.js';
 import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
+import { startWebhookWorker } from './webhooks/dispatcher.js';
 import { isSsoEnabled, type SsoConfig } from './auth/sso.js';
 import { validateEncryptionConfig, type EncryptionConfig } from './auth/encryption.js';
 import type { Pool } from 'pg';
@@ -609,7 +610,7 @@ export async function createCloudDashboard(
   // ============================================================================
 
   // Admin routes already include their own auth middleware internally
-  app.route('/api/admin', createAdminRoutes({ db, jwtSecret }));
+  app.route('/api/admin', createAdminRoutes({ db, jwtSecret, encryption: options.encryption }));
 
   // ============================================================================
   // Dashboard API Routes (JWT authentication with project scope)
@@ -1055,6 +1056,7 @@ export async function createCloudDashboard(
   // ============================================================================
 
   let server: ReturnType<typeof serve> | null = null;
+  let stopWebhookWorker: (() => void) | null = null;
 
   return {
     app,
@@ -1069,6 +1071,7 @@ export async function createCloudDashboard(
             hostname,
           },
           (info) => {
+            stopWebhookWorker = startWebhookWorker({ db, encryption: options.encryption });
             const encryptionStatus = validateEncryptionConfig(options.encryption)
               ? '🔐 Encryption at rest: enabled'
               : '⚠️  Encryption at rest: disabled';
@@ -1090,6 +1093,11 @@ export async function createCloudDashboard(
       });
     },
     async stop() {
+      if (stopWebhookWorker) {
+        stopWebhookWorker();
+        stopWebhookWorker = null;
+      }
+
       if (server) {
         server.close();
         server = null;

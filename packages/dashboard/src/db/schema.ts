@@ -10,6 +10,7 @@ import {
   jsonb,
   integer,
   numeric,
+  boolean,
   unique,
 } from 'drizzle-orm/pg-core';
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
@@ -222,6 +223,100 @@ export type AuditLog = InferSelectModel<typeof auditLogs>;
 export type NewAuditLog = InferInsertModel<typeof auditLogs>;
 
 // ============================================================================
+// Alerting & Webhooks
+// ============================================================================
+
+/**
+ * Alert Rules - Project-level alert definitions
+ */
+export const alertRules = pgTable('alert_rules', {
+  id: text('id').primaryKey(), // prefix 'alr_'
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  type: text('type', { enum: ['cost_threshold', 'error_rate'] }).notNull(),
+  threshold: numeric('threshold', { precision: 12, scale: 6 }).notNull(),
+  windowMinutes: integer('window_minutes').default(60).notNull(),
+  minRequests: integer('min_requests').default(1),
+  cooldownMinutes: integer('cooldown_minutes').default(15).notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  lastTriggeredAt: timestamp('last_triggered_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type AlertRule = InferSelectModel<typeof alertRules>;
+export type NewAlertRule = InferInsertModel<typeof alertRules>;
+
+/**
+ * Alert Events - Trigger history for alert rules
+ */
+export const alertEvents = pgTable('alert_events', {
+  id: text('id').primaryKey(), // prefix 'ale_'
+  ruleId: text('rule_id')
+    .notNull()
+    .references(() => alertRules.id, { onDelete: 'cascade' }),
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  type: text('type', { enum: ['cost_threshold', 'error_rate'] }).notNull(),
+  status: text('status', { enum: ['triggered', 'resolved'] }).default('triggered'),
+  value: numeric('value', { precision: 12, scale: 6 }),
+  threshold: numeric('threshold', { precision: 12, scale: 6 }),
+  message: text('message'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export type AlertEvent = InferSelectModel<typeof alertEvents>;
+export type NewAlertEvent = InferInsertModel<typeof alertEvents>;
+
+/**
+ * Webhooks - Outbound notifications for alert events
+ */
+export const webhooks = pgTable('webhooks', {
+  id: text('id').primaryKey(), // prefix 'whk_'
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  secret: text('secret'),
+  events: text('events').array().default(['alert.triggered']),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type Webhook = InferSelectModel<typeof webhooks>;
+export type NewWebhook = InferInsertModel<typeof webhooks>;
+
+/**
+ * Webhook Deliveries - Delivery attempts and status
+ */
+export const webhookDeliveries = pgTable('webhook_deliveries', {
+  id: text('id').primaryKey(), // prefix 'whd_'
+  webhookId: text('webhook_id')
+    .notNull()
+    .references(() => webhooks.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').references(() => alertEvents.id, { onDelete: 'set null' }),
+  eventType: text('event_type').notNull(),
+  payload: jsonb('payload'),
+  status: text('status', { enum: ['pending', 'success', 'failed'] }).default('pending'),
+  attempts: integer('attempts').default(0).notNull(),
+  nextAttemptAt: timestamp('next_attempt_at').defaultNow().notNull(),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  responseCode: integer('response_code'),
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type WebhookDelivery = InferSelectModel<typeof webhookDeliveries>;
+export type NewWebhookDelivery = InferInsertModel<typeof webhookDeliveries>;
+
+// ============================================================================
 // Observability Tables
 // ============================================================================
 
@@ -359,6 +454,11 @@ export const schema = {
   invitations,
   // Audit
   auditLogs,
+  // Alerting & Webhooks
+  alertRules,
+  alertEvents,
+  webhooks,
+  webhookDeliveries,
   // Observability
   traces,
   spans,
