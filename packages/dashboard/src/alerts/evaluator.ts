@@ -5,7 +5,9 @@
 import { nanoid } from 'nanoid';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/index.js';
-import { alertRules, alertEvents } from '../db/schema.js';
+import { alertRules, alertEvents, projects, organizations } from '../db/schema.js';
+import { enqueueNotificationDeliveries } from '../notifications/dispatcher.js';
+import type { NotificationPayload } from '../notifications/types.js';
 
 export type AlertRuleType = 'cost_threshold' | 'error_rate';
 
@@ -90,6 +92,103 @@ async function recordAlertTrigger(params: TriggerParams): Promise<AlertTrigger> 
   };
 }
 
+/**
+ * Determine alert severity based on how much the threshold was exceeded
+ */
+function determineSeverity(
+  value: number,
+  threshold: number,
+  type: AlertRuleType
+): 'critical' | 'warning' | 'info' {
+  const ratio = value / threshold;
+  if (type === 'error_rate') {
+    // For error rates, anything over 2x threshold is critical
+    if (ratio >= 2) return 'critical';
+    if (ratio >= 1.5) return 'warning';
+    return 'info';
+  }
+  // For cost thresholds, anything over 1.5x is critical
+  if (ratio >= 1.5) return 'critical';
+  if (ratio >= 1.25) return 'warning';
+  return 'info';
+}
+
+/**
+ * Enqueue notification deliveries for an alert trigger.
+ * Runs asynchronously to avoid blocking the alert evaluation.
+ */
+async function enqueueAlertNotifications(
+  db: Database,
+  trigger: AlertTrigger,
+  rule: { id: string; name: string; type: AlertRuleType; threshold: string | null; windowMinutes: number | null }
+): Promise<void> {
+  try {
+    // Fetch project and organization details
+    const projectResult = await db
+      .select({
+        project: projects,
+        organization: organizations,
+      })
+      .from(projects)
+      .innerJoin(organizations, eq(projects.orgId, organizations.id))
+      .where(eq(projects.id, trigger.projectId))
+      .limit(1);
+
+    if (projectResult.length === 0) {
+      console.error('[Alerts] Project not found for notification:', trigger.projectId);
+      return;
+    }
+
+    const { project, organization } = projectResult[0];
+    const severity = determineSeverity(trigger.value, trigger.threshold, trigger.type);
+
+    // Build the notification payload
+    const payload: NotificationPayload = {
+      alertRule: {
+        id: rule.id,
+        name: rule.name,
+        type: rule.type,
+        threshold: trigger.threshold,
+        windowMinutes: trigger.windowMinutes,
+      },
+      alertEvent: {
+        id: trigger.eventId,
+        triggeredAt: trigger.createdAt,
+        currentValue: trigger.value,
+        severity,
+      },
+      project: {
+        id: project.id,
+        name: project.name,
+      },
+      organization: {
+        id: organization.id,
+        name: organization.name,
+      },
+      // Dashboard URL - use environment variable or default
+      dashboardUrl: `${process.env.DASHBOARD_URL || 'http://localhost:3030'}/projects/${project.id}/alerts/${trigger.eventId}`,
+    };
+
+    // Enqueue notifications for all matching channels
+    const deliveryIds = await enqueueNotificationDeliveries(
+      db,
+      trigger.projectId,
+      'alert.triggered',
+      trigger.eventId,
+      payload
+    );
+
+    if (deliveryIds.length > 0) {
+      console.log(
+        `[Alerts] Enqueued ${deliveryIds.length} notification(s) for alert ${trigger.eventId}`
+      );
+    }
+  } catch (error) {
+    // Log error but don't throw - notifications should not block alert recording
+    console.error('[Alerts] Failed to enqueue notifications:', error);
+  }
+}
+
 export async function evaluateAlertRulesForProject(
   db: Database,
   projectId: string,
@@ -149,6 +248,11 @@ export async function evaluateAlertRulesForProject(
           now,
         });
         triggers.push(trigger);
+
+        // Enqueue notifications asynchronously (don't await to avoid blocking)
+        enqueueAlertNotifications(db, trigger, rule).catch((error) => {
+          console.error('[Alerts] Failed to enqueue notifications:', error);
+        });
       }
     }
 
@@ -195,6 +299,11 @@ export async function evaluateAlertRulesForProject(
           now,
         });
         triggers.push(trigger);
+
+        // Enqueue notifications asynchronously (don't await to avoid blocking)
+        enqueueAlertNotifications(db, trigger, rule).catch((error) => {
+          console.error('[Alerts] Failed to enqueue notifications:', error);
+        });
       }
     }
   }

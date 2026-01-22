@@ -26,6 +26,8 @@ export type Permission =
   | 'alerts:manage'
   | 'webhooks:read'
   | 'webhooks:manage'
+  | 'notifications:read'
+  | 'notifications:manage'
   | 'traces:read'
   | 'stats:read'
   | 'health:read'
@@ -49,6 +51,8 @@ const ALL_PERMISSIONS: Permission[] = [
   'alerts:manage',
   'webhooks:read',
   'webhooks:manage',
+  'notifications:read',
+  'notifications:manage',
   'traces:read',
   'stats:read',
   'health:read',
@@ -67,6 +71,7 @@ const ROLE_PERMISSIONS: Record<Role, Set<Permission>> = {
     'api_key:delete',
     'alerts:read',
     'webhooks:read',
+    'notifications:read',
     'traces:read',
     'stats:read',
     'health:read',
@@ -76,6 +81,7 @@ const ROLE_PERMISSIONS: Record<Role, Set<Permission>> = {
     'org:read',
     'project:read',
     'alerts:read',
+    'notifications:read',
     'traces:read',
     'stats:read',
     'health:read',
