@@ -219,7 +219,7 @@ export class EmailAdapter implements NotificationChannelAdapter {
 
       const result = await transporter.sendMail({
         from: config.fromName
-          ? `"${config.fromName.replace(/"/g, '\\"')}" <${config.fromEmail}>`
+          ? `"${config.fromName.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" <${config.fromEmail}>`
           : config.fromEmail,
         to: config.recipients.join(', '),
         replyTo: config.replyTo,
@@ -351,7 +351,7 @@ export class EmailAdapter implements NotificationChannelAdapter {
         },
         body: JSON.stringify({
           from: config.fromName
-            ? `"${config.fromName.replace(/"/g, '\\"')}" <${config.fromEmail}>`
+            ? `"${config.fromName.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" <${config.fromEmail}>`
             : config.fromEmail,
           to: config.recipients,
           reply_to: config.replyTo,
