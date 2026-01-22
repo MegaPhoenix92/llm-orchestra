@@ -202,7 +202,7 @@ const result = await trace('user-question-flow', async (span) => {
 
 ### Phase 5: Security Hardening (2026+) ✅
 - [x] Security scanning (CodeQL, dependency scanning, secret detection)
-- [x] Encryption at rest (self-hosted PostgreSQL)
+- [x] [Encryption at rest](docs/encryption-at-rest.md) (self-hosted PostgreSQL)
 - [x] Azure AD SSO/OIDC integration
 
 ## Contributing
