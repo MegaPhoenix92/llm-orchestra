@@ -205,6 +205,123 @@ const result = await trace('user-question-flow', async (span) => {
 - [x] [Encryption at rest](docs/encryption-at-rest.md) (self-hosted PostgreSQL)
 - [x] Azure AD SSO/OIDC integration
 
+### Phase 6: Notification Channels (v0.6.0) ✅
+- [x] Slack notifications with Block Kit formatting
+- [x] Email notifications (SMTP, SendGrid, Resend)
+- [x] PagerDuty integration with Events API v2
+- [x] Encrypted secrets at rest
+
+## Notification Channels
+
+LLM Orchestra supports multi-channel alert notifications to keep your team informed when alerts trigger. Configure notifications to be delivered to **Slack**, **Email**, or **PagerDuty**.
+
+### Supported Channels
+
+| Channel | Features |
+|---------|----------|
+| **Slack** | Block Kit rich formatting, severity emoji indicators, webhook integration |
+| **Email** | SMTP, SendGrid, Resend providers, HTML templates |
+| **PagerDuty** | Events API v2, severity mapping, auto-resolve support |
+
+### Configuration
+
+#### Slack
+
+```typescript
+// Create a Slack notification channel
+await fetch('/api/admin/notification-channels', {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    projectId: 'proj_xxx',
+    name: 'Production Alerts',
+    type: 'slack',
+    config: {
+      webhookUrl: 'https://hooks.slack.com/services/xxx/yyy/zzz',
+      channel: '#alerts',           // Optional: override channel
+      username: 'LLM Orchestra',    // Optional: bot name
+      iconEmoji: ':robot_face:',    // Optional: bot icon
+      useBlockKit: true             // Optional: rich formatting (default: true)
+    },
+    events: ['alert.triggered']
+  })
+});
+```
+
+#### Email
+
+```typescript
+// Email with SendGrid
+{
+  type: 'email',
+  config: {
+    provider: 'sendgrid',           // or 'smtp', 'resend'
+    apiKey: 'SG.xxx',               // Encrypted at rest
+    fromEmail: 'alerts@example.com',
+    fromName: 'LLM Orchestra',
+    recipients: ['oncall@example.com', 'team@example.com'],
+    replyTo: 'support@example.com'  // Optional
+  }
+}
+
+// Email with SMTP
+{
+  type: 'email',
+  config: {
+    provider: 'smtp',
+    smtpHost: 'smtp.example.com',
+    smtpPort: 587,
+    smtpUser: 'alerts@example.com', // Encrypted at rest
+    smtpPassword: 'xxx',            // Encrypted at rest
+    smtpSecure: false,              // true for port 465
+    fromEmail: 'alerts@example.com',
+    recipients: ['team@example.com']
+  }
+}
+```
+
+#### PagerDuty
+
+```typescript
+{
+  type: 'pagerduty',
+  config: {
+    routingKey: 'xxx',              // Events API v2 key (encrypted at rest)
+    dedupKeyPrefix: 'llm-orchestra', // Optional: custom dedup prefix
+    autoResolve: true,              // Optional: auto-resolve when alert clears
+    severityMapping: {              // Optional: custom severity mapping
+      cost_threshold: 'warning',
+      error_rate: 'critical'
+    }
+  }
+}
+```
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/admin/notification-channels?projectId=xxx` | List channels |
+| `POST` | `/api/admin/notification-channels` | Create channel |
+| `GET` | `/api/admin/notification-channels/:id` | Get channel |
+| `PUT` | `/api/admin/notification-channels/:id` | Update channel |
+| `DELETE` | `/api/admin/notification-channels/:id` | Delete channel |
+| `POST` | `/api/admin/notification-channels/:id/test` | Test connection |
+| `GET` | `/api/admin/notification-deliveries?projectId=xxx` | List deliveries |
+
+### Security
+
+- **Encryption at rest** - Sensitive fields (webhook URLs, API keys, passwords) are encrypted with AES-256-GCM
+- **Redaction in responses** - Secrets are replaced with `********` in API responses
+- **RBAC permissions** - Requires `notifications:read` or `notifications:manage` permission
+
+### Delivery & Reliability
+
+- Background worker polls every 5 seconds
+- Exponential backoff retry: 15s → 30s → 60s → 120s → 240s (max 5 attempts)
+- 30-second timeout per request to prevent stuck workers
+- Batch processing (25 deliveries per cycle)
+
 ## Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
