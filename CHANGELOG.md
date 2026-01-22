@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- Add links to GitHub dependency graph, Dependabot alerts, and Dependency Review docs
+- Improve SECURITY.md formatting for GitHub dependency graph, Dependabot alerts, and Dependency Review links
 
 ## [0.5.0] - 2026-01-22
 
