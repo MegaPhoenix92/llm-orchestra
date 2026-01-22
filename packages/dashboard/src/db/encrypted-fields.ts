@@ -5,6 +5,7 @@
  * Provides helper functions to encrypt/decrypt records before storage/after retrieval.
  */
 
+import crypto from 'crypto';
 import {
   encrypt,
   decrypt,
@@ -241,7 +242,5 @@ export function createEncryptionContext(config?: EncryptionConfig) {
  * Uses SHA-256 to create a searchable hash of the email
  */
 export function hashEmailForLookup(email: string): string {
-  // Import crypto dynamically to avoid issues in browser environments
-  const crypto = require('crypto');
   return crypto.createHash('sha256').update(email.toLowerCase()).digest('hex');
 }

@@ -20,11 +20,7 @@ import { createPageRoutes } from './server/routes/pages.js';
 import { createSsoRoutes } from './server/routes/sso.js';
 import { getRequestMetadata, writeAuditLog } from './utils/audit.js';
 import { isSsoEnabled, type SsoConfig } from './auth/sso.js';
-import {
-  validateEncryptionConfig,
-  generateEncryptionKey,
-  type EncryptionConfig,
-} from './auth/encryption.js';
+import { validateEncryptionConfig, type EncryptionConfig } from './auth/encryption.js';
 import type { Pool } from 'pg';
 
 // ============================================================================

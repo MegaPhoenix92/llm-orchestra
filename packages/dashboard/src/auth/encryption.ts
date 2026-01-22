@@ -25,7 +25,6 @@ export interface EncryptionConfig {
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits for GCM
-const AUTH_TAG_LENGTH = 16; // 128 bits
 const SALT_LENGTH = 16; // 128 bits
 const PBKDF2_ITERATIONS = 100000;
 const CURRENT_VERSION = 'v1';
@@ -196,12 +195,10 @@ export function decryptJson(
     return null;
   }
   const json = decryptIfNeeded(encrypted, config);
-  try {
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    // If parsing fails, it might be unencrypted JSON
-    return JSON.parse(encrypted) as Record<string, unknown>;
-  }
+  // If decryptIfNeeded returned the original (unencrypted JSON), parsing should succeed.
+  // If it returned decrypted content from encryptJson, it should also be valid JSON.
+  // An error here indicates data corruption or invalid format.
+  return JSON.parse(json) as Record<string, unknown>;
 }
 
 /**
