@@ -46,6 +46,15 @@ File-based agent coordination with:
 - Inter-agent messaging
 - Collaborative workflows
 
+### Vercel AI SDK Route (`vercel-ai-sdk-route.ts`)
+Next.js API route example that streams Orchestra responses with the Vercel AI SDK.
+
+### Vercel AI SDK Chat Route (`vercel-ai-sdk-chat-route.ts`)
+Next.js API route example for `useChat` with metadata streaming via StreamData.
+
+### LangChain (`langchain.ts`)
+LangChain prompt integration with Orchestra as the model executor.
+
 ## Running Examples
 
 ```bash
@@ -66,6 +75,15 @@ OTEL_EXPORTER_ENDPOINT=http://localhost:4318/v1/traces npx tsx examples/tracing-
 
 # Multi-agent
 npx tsx examples/multi-agent.ts
+
+# Vercel AI SDK (copy into Next.js app)
+# See docs/integrations/vercel-ai-sdk.md
+
+# Vercel AI SDK useChat (copy into Next.js app)
+# See docs/integrations/vercel-ai-sdk.md
+
+# LangChain (requires @langchain/core)
+npx tsx examples/langchain.ts
 ```
 
 ## Example Output

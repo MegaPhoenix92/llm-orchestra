@@ -80,7 +80,7 @@ console.log(response.meta);
 - **TypeScript & Python SDKs** - First-class support for both
 - **OpenTelemetry native** - Export to any OTEL-compatible backend
 - **Self-hosted or cloud** - Run the dashboard locally or use our cloud
-- **Framework integrations** - LangChain, LlamaIndex, Vercel AI SDK
+- **Framework integrations** - LangChain ([guide](docs/integrations/langchain.md)), LlamaIndex, Vercel AI SDK ([guide](docs/integrations/vercel-ai-sdk.md))
 
 ## Quick Start
 
