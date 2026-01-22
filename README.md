@@ -226,6 +226,69 @@ npm test
 npm run dashboard
 ```
 
+### Cloud Dashboard Development (with Docker)
+
+The cloud dashboard requires PostgreSQL. We provide a Docker setup for local development:
+
+```bash
+# Clone the repo
+git clone https://github.com/MegaPhoenix92/llm-orchestra.git
+cd llm-orchestra
+
+# Start PostgreSQL in Docker
+docker-compose up -d
+
+# Copy environment template
+cp packages/dashboard/.env.example packages/dashboard/.env
+
+# Install dependencies
+npm install
+
+# Push database schema
+npm run db:push -w llm-orchestra-dashboard
+
+# Run all tests
+npm test
+
+# Start the cloud dashboard
+npm run dev -w llm-orchestra-dashboard
+```
+
+#### Docker Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| PostgreSQL | 5432 | Database for dashboard |
+
+#### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://orchestra:orchestra_dev@localhost:5432/llm_orchestra` |
+| `JWT_SECRET` | Secret for JWT tokens | (required) |
+| `ENCRYPTION_KEY` | Optional encryption for secrets at rest | (optional) |
+
+#### Useful Commands
+
+```bash
+# Start database
+docker-compose up -d
+
+# Stop database
+docker-compose down
+
+# Reset database (delete all data)
+docker-compose down -v && docker-compose up -d
+
+# View database logs
+docker-compose logs -f postgres
+
+# Connect to database
+docker exec -it llm-orchestra-db psql -U orchestra -d llm_orchestra
+```
+
 ## Why LLM Orchestra?
 
 ### vs. LangSmith
