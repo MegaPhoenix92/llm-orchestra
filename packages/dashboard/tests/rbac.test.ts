@@ -64,6 +64,16 @@ describe('roleHasPermission', () => {
       expect(roleHasPermission(role, 'audit:read')).toBe(true);
     });
 
+    it('should_haveAlertPermissions_when_roleIsOwner', () => {
+      expect(roleHasPermission(role, 'alerts:read')).toBe(true);
+      expect(roleHasPermission(role, 'alerts:manage')).toBe(true);
+    });
+
+    it('should_haveWebhookPermissions_when_roleIsOwner', () => {
+      expect(roleHasPermission(role, 'webhooks:read')).toBe(true);
+      expect(roleHasPermission(role, 'webhooks:manage')).toBe(true);
+    });
+
     it('should_haveAllObservabilityPermissions_when_roleIsOwner', () => {
       expect(roleHasPermission(role, 'traces:read')).toBe(true);
       expect(roleHasPermission(role, 'stats:read')).toBe(true);
@@ -84,6 +94,8 @@ describe('roleHasPermission', () => {
       expect(roleHasPermission(role, 'team:invite')).toBe(true);
       expect(roleHasPermission(role, 'team:remove')).toBe(true);
       expect(roleHasPermission(role, 'audit:read')).toBe(true);
+      expect(roleHasPermission(role, 'alerts:manage')).toBe(true);
+      expect(roleHasPermission(role, 'webhooks:manage')).toBe(true);
     });
   });
 
@@ -94,6 +106,8 @@ describe('roleHasPermission', () => {
       expect(roleHasPermission(role, 'org:read')).toBe(true);
       expect(roleHasPermission(role, 'project:read')).toBe(true);
       expect(roleHasPermission(role, 'team:read')).toBe(true);
+      expect(roleHasPermission(role, 'alerts:read')).toBe(true);
+      expect(roleHasPermission(role, 'webhooks:read')).toBe(true);
       expect(roleHasPermission(role, 'traces:read')).toBe(true);
       expect(roleHasPermission(role, 'stats:read')).toBe(true);
       expect(roleHasPermission(role, 'health:read')).toBe(true);
@@ -121,6 +135,14 @@ describe('roleHasPermission', () => {
     it('should_notHaveAuditPermission_when_roleIsMember', () => {
       expect(roleHasPermission(role, 'audit:read')).toBe(false);
     });
+
+    it('should_notHaveAlertManagementPermissions_when_roleIsMember', () => {
+      expect(roleHasPermission(role, 'alerts:manage')).toBe(false);
+    });
+
+    it('should_notHaveWebhookManagementPermissions_when_roleIsMember', () => {
+      expect(roleHasPermission(role, 'webhooks:manage')).toBe(false);
+    });
   });
 
   describe('viewer role', () => {
@@ -129,6 +151,7 @@ describe('roleHasPermission', () => {
     it('should_haveReadOnlyPermissions_when_roleIsViewer', () => {
       expect(roleHasPermission(role, 'org:read')).toBe(true);
       expect(roleHasPermission(role, 'project:read')).toBe(true);
+      expect(roleHasPermission(role, 'alerts:read')).toBe(true);
       expect(roleHasPermission(role, 'traces:read')).toBe(true);
       expect(roleHasPermission(role, 'stats:read')).toBe(true);
       expect(roleHasPermission(role, 'health:read')).toBe(true);
@@ -157,6 +180,11 @@ describe('roleHasPermission', () => {
     it('should_notHaveAuditPermission_when_roleIsViewer', () => {
       expect(roleHasPermission(role, 'audit:read')).toBe(false);
     });
+
+    it('should_notHaveWebhookPermissions_when_roleIsViewer', () => {
+      expect(roleHasPermission(role, 'webhooks:read')).toBe(false);
+      expect(roleHasPermission(role, 'webhooks:manage')).toBe(false);
+    });
   });
 
   describe('invalid role', () => {
@@ -182,6 +210,10 @@ describe('Permission matrix', () => {
     'api_key:create',
     'api_key:delete',
     'audit:read',
+    'alerts:read',
+    'alerts:manage',
+    'webhooks:read',
+    'webhooks:manage',
     'traces:read',
     'stats:read',
     'health:read',
@@ -197,6 +229,8 @@ describe('Permission matrix', () => {
     'api_key:read',
     'api_key:create',
     'api_key:delete',
+    'alerts:read',
+    'webhooks:read',
     'traces:read',
     'stats:read',
     'health:read',
@@ -205,6 +239,7 @@ describe('Permission matrix', () => {
   const expectedViewerPermissions: Permission[] = [
     'org:read',
     'project:read',
+    'alerts:read',
     'traces:read',
     'stats:read',
     'health:read',
@@ -297,6 +332,10 @@ describe('Permission type validation', () => {
       'api_key:create',
       'api_key:delete',
       'audit:read',
+      'alerts:read',
+      'alerts:manage',
+      'webhooks:read',
+      'webhooks:manage',
       'traces:read',
       'stats:read',
       'health:read',
