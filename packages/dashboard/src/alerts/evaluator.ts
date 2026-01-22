@@ -34,6 +34,62 @@ function shouldThrottle(lastTriggeredAt: Date | null, cooldownMinutes: number, n
   return now.getTime() - lastTriggeredAt.getTime() < cooldownMs;
 }
 
+interface TriggerParams {
+  db: Database;
+  rule: {
+    id: string;
+    name: string;
+    type: string;
+  };
+  projectId: string;
+  value: number;
+  threshold: number;
+  windowMinutes: number;
+  minRequests: number;
+  message: string;
+  metadata: Record<string, unknown>;
+  now: Date;
+}
+
+async function recordAlertTrigger(params: TriggerParams): Promise<AlertTrigger> {
+  const { db, rule, projectId, value, threshold, windowMinutes, minRequests, message, metadata, now } =
+    params;
+  const eventId = `ale_${nanoid(21)}`;
+
+  await db.insert(alertEvents).values({
+    id: eventId,
+    ruleId: rule.id,
+    projectId,
+    type: rule.type,
+    status: 'triggered',
+    value: String(value),
+    threshold: String(threshold),
+    message,
+    metadata,
+    createdAt: now,
+  });
+
+  await db
+    .update(alertRules)
+    .set({ lastTriggeredAt: now, updatedAt: now })
+    .where(eq(alertRules.id, rule.id));
+
+  return {
+    eventId,
+    ruleId: rule.id,
+    projectId,
+    type: rule.type as AlertRuleType,
+    name: rule.name,
+    value,
+    threshold,
+    windowMinutes,
+    minRequests,
+    message,
+    metadata,
+    createdAt: now,
+  };
+}
+
 export async function evaluateAlertRulesForProject(
   db: Database,
   projectId: string,
@@ -73,48 +129,26 @@ export async function evaluateAlertRulesForProject(
       const totalCost = Number((costResult.rows[0] as { total: string }).total || 0);
 
       if (totalCost >= threshold) {
-        const eventId = `ale_${nanoid(21)}`;
-        const message = `Cost threshold exceeded: $${totalCost.toFixed(4)} >= $${threshold.toFixed(
-          4
-        )}`;
+        const message = `Cost threshold exceeded: $${totalCost.toFixed(4)} >= $${threshold.toFixed(4)}`;
         const metadata = {
           windowMinutes,
           windowStart: windowStart.toISOString(),
           totalCost,
         };
 
-        await db.insert(alertEvents).values({
-          id: eventId,
-          ruleId: rule.id,
+        const trigger = await recordAlertTrigger({
+          db,
+          rule,
           projectId,
-          type: rule.type,
-          status: 'triggered',
-          value: String(totalCost),
-          threshold: String(threshold),
-          message,
-          metadata,
-          createdAt: now,
-        });
-
-        await db
-          .update(alertRules)
-          .set({ lastTriggeredAt: now, updatedAt: now })
-          .where(eq(alertRules.id, rule.id));
-
-        triggers.push({
-          eventId,
-          ruleId: rule.id,
-          projectId,
-          type: rule.type as AlertRuleType,
-          name: rule.name,
           value: totalCost,
           threshold,
           windowMinutes,
           minRequests,
           message,
           metadata,
-          createdAt: now,
+          now,
         });
+        triggers.push(trigger);
       }
     }
 
@@ -137,7 +171,6 @@ export async function evaluateAlertRulesForProject(
       const errorRate = total > 0 ? errors / total : 0;
 
       if (errorRate >= threshold) {
-        const eventId = `ale_${nanoid(21)}`;
         const message = `Error rate threshold exceeded: ${(errorRate * 100).toFixed(2)}% >= ${(
           threshold * 100
         ).toFixed(2)}%`;
@@ -149,38 +182,19 @@ export async function evaluateAlertRulesForProject(
           errorRate,
         };
 
-        await db.insert(alertEvents).values({
-          id: eventId,
-          ruleId: rule.id,
+        const trigger = await recordAlertTrigger({
+          db,
+          rule,
           projectId,
-          type: rule.type,
-          status: 'triggered',
-          value: String(errorRate),
-          threshold: String(threshold),
-          message,
-          metadata,
-          createdAt: now,
-        });
-
-        await db
-          .update(alertRules)
-          .set({ lastTriggeredAt: now, updatedAt: now })
-          .where(eq(alertRules.id, rule.id));
-
-        triggers.push({
-          eventId,
-          ruleId: rule.id,
-          projectId,
-          type: rule.type as AlertRuleType,
-          name: rule.name,
           value: errorRate,
           threshold,
           windowMinutes,
           minRequests,
           message,
           metadata,
-          createdAt: now,
+          now,
         });
+        triggers.push(trigger);
       }
     }
   }

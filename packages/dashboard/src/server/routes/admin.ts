@@ -74,6 +74,153 @@ function parseWebhookEvents(raw: unknown): string[] | null {
   return Array.from(new Set(events));
 }
 
+interface AlertRuleValidationResult {
+  valid: true;
+  data: {
+    name: string;
+    type: string;
+    threshold: number;
+    windowMinutes: number;
+    minRequests: number;
+    cooldownMinutes: number;
+    enabled: boolean;
+  };
+}
+
+interface ValidationError {
+  valid: false;
+  error: string;
+}
+
+function validateAlertRuleInput(
+  body: Record<string, unknown>,
+  isUpdate: boolean,
+  existingType?: string
+): AlertRuleValidationResult | ValidationError {
+  const { name, type, threshold, windowMinutes, minRequests, cooldownMinutes, enabled } = body;
+
+  // For create, name and type are required; for update, they're optional
+  if (!isUpdate) {
+    if (!name || typeof name !== 'string' || (name as string).trim().length === 0) {
+      return { valid: false, error: 'Alert name is required' };
+    }
+    if (!type || !ALLOWED_ALERT_TYPES.has(type as string)) {
+      return { valid: false, error: 'Alert type must be cost_threshold or error_rate' };
+    }
+  } else {
+    if (name !== undefined && (!name || typeof name !== 'string' || (name as string).trim().length === 0)) {
+      return { valid: false, error: 'Alert name must be a non-empty string' };
+    }
+    if (type !== undefined && !ALLOWED_ALERT_TYPES.has(type as string)) {
+      return { valid: false, error: 'Alert type must be cost_threshold or error_rate' };
+    }
+  }
+
+  const effectiveType = (type as string) ?? existingType;
+  let parsedThreshold: number;
+
+  if (!isUpdate || threshold !== undefined) {
+    parsedThreshold = Number(threshold);
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold <= 0) {
+      return { valid: false, error: 'Threshold must be a positive number' };
+    }
+    if (effectiveType === 'error_rate' && (parsedThreshold <= 0 || parsedThreshold > 1)) {
+      return { valid: false, error: 'Error rate threshold must be between 0 and 1' };
+    }
+  } else {
+    parsedThreshold = 0; // Will not be used in update when threshold is not provided
+  }
+
+  const parsedWindow = windowMinutes === undefined ? 60 : Number(windowMinutes);
+  if (windowMinutes !== undefined && (!Number.isFinite(parsedWindow) || parsedWindow <= 0)) {
+    return { valid: false, error: 'windowMinutes must be a positive number' };
+  }
+
+  const parsedMinRequests = minRequests === undefined ? 1 : Number(minRequests);
+  if (minRequests !== undefined && (!Number.isFinite(parsedMinRequests) || parsedMinRequests < 1)) {
+    return { valid: false, error: 'minRequests must be a positive number' };
+  }
+
+  const parsedCooldown = cooldownMinutes === undefined ? 15 : Number(cooldownMinutes);
+  if (cooldownMinutes !== undefined && (!Number.isFinite(parsedCooldown) || parsedCooldown < 0)) {
+    return { valid: false, error: 'cooldownMinutes must be 0 or greater' };
+  }
+
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return { valid: false, error: 'enabled must be a boolean' };
+  }
+
+  return {
+    valid: true,
+    data: {
+      name: typeof name === 'string' ? name.trim() : '',
+      type: (type as string) ?? '',
+      threshold: parsedThreshold,
+      windowMinutes: Math.round(parsedWindow),
+      minRequests: Math.round(parsedMinRequests),
+      cooldownMinutes: Math.round(parsedCooldown),
+      enabled: enabled === undefined ? true : Boolean(enabled),
+    },
+  };
+}
+
+interface WebhookValidationResult {
+  valid: true;
+  data: {
+    name: string;
+    url: string;
+    events: string[];
+    enabled: boolean;
+  };
+}
+
+function validateWebhookInput(
+  body: Record<string, unknown>,
+  isUpdate: boolean
+): WebhookValidationResult | ValidationError {
+  const { name, url, events, enabled } = body;
+
+  // For create, name and url are required; for update, they're optional
+  if (!isUpdate) {
+    if (!name || typeof name !== 'string' || (name as string).trim().length === 0) {
+      return { valid: false, error: 'Webhook name is required' };
+    }
+    if (!url || typeof url !== 'string' || !isValidWebhookUrl(url as string)) {
+      return { valid: false, error: 'Webhook URL must be http or https' };
+    }
+  } else {
+    if (name !== undefined && (!name || typeof name !== 'string' || (name as string).trim().length === 0)) {
+      return { valid: false, error: 'Webhook name must be a non-empty string' };
+    }
+    if (url !== undefined && (!url || typeof url !== 'string' || !isValidWebhookUrl(url as string))) {
+      return { valid: false, error: 'Webhook URL must be http or https' };
+    }
+  }
+
+  let parsedEvents: string[] = ['alert.triggered'];
+  if (events !== undefined) {
+    const result = parseWebhookEvents(events);
+    if (!result) {
+      return { valid: false, error: 'Webhook events must include alert.triggered' };
+    }
+    parsedEvents = result;
+  }
+
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return { valid: false, error: 'enabled must be a boolean' };
+  }
+
+  return {
+    valid: true,
+    data: {
+      name: typeof name === 'string' ? name.trim() : '',
+      url: (url as string) ?? '',
+      events: parsedEvents,
+      enabled: enabled === undefined ? true : Boolean(enabled),
+    },
+  };
+}
+
 /**
  * Create admin routes for the dashboard
  * @param options - Options containing database instance and JWT secret
@@ -1134,6 +1281,15 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
           return c.json({ error: 'Error rate threshold must be between 0 and 1' }, 400);
         }
         updateData.threshold = String(parsedThreshold);
+      } else if (type === 'error_rate' && existingRule.type !== 'error_rate') {
+        // Re-validate existing threshold when switching to error_rate without providing new threshold
+        const existingThreshold = Number(existingRule.threshold ?? 0);
+        if (existingThreshold <= 0 || existingThreshold > 1) {
+          return c.json(
+            { error: 'Threshold must be between 0 and 1 when changing to error_rate type' },
+            400
+          );
+        }
       }
 
       if (windowMinutes !== undefined) {

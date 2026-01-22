@@ -167,82 +167,85 @@ export async function processWebhookDeliveries(
     return 0;
   }
 
-  for (const delivery of dueDeliveries) {
-    const attemptNumber = delivery.attempts + 1;
-    const payloadBody = JSON.stringify(delivery.payload ?? {});
-    let success = false;
-    let responseCode: number | null = null;
-    let errorMessage: string | null = null;
+  await Promise.all(
+    dueDeliveries.map(async (delivery) => {
+      const attemptNumber = delivery.attempts + 1;
+      const payloadBody = JSON.stringify(delivery.payload ?? {});
+      let success = false;
+      let responseCode: number | null = null;
+      let errorMessage: string | null = null;
 
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'llm-orchestra-dashboard/alerts',
-        'X-Orchestra-Event': delivery.eventType,
-        'X-Orchestra-Delivery-Id': delivery.id,
-      };
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'User-Agent': 'llm-orchestra-dashboard/alerts',
+          'X-Orchestra-Event': delivery.eventType,
+          'X-Orchestra-Delivery-Id': delivery.id,
+        };
 
-      if (delivery.eventId) {
-        headers['X-Orchestra-Event-Id'] = delivery.eventId;
-      }
-
-      if (delivery.webhookSecret) {
-        if (isEncrypted(delivery.webhookSecret) && !encryptionEnabled) {
-          throw new Error('Encrypted webhook secret requires encryption config');
+        if (delivery.eventId) {
+          headers['X-Orchestra-Event-Id'] = delivery.eventId;
         }
 
-        const secret = encryptionEnabled && options.encryption
-          ? decryptIfNeeded(delivery.webhookSecret, options.encryption)
-          : delivery.webhookSecret;
-        const timestamp = Math.floor(now.getTime() / 1000).toString();
-        const signaturePayload = `${timestamp}.${payloadBody}`;
-        const signature = createHmac('sha256', secret)
-          .update(signaturePayload)
-          .digest('hex');
+        if (delivery.webhookSecret) {
+          if (isEncrypted(delivery.webhookSecret) && !encryptionEnabled) {
+            throw new Error('Encrypted webhook secret requires encryption config');
+          }
 
-        headers['X-Orchestra-Timestamp'] = timestamp;
-        headers['X-Orchestra-Signature'] = `sha256=${signature}`;
+          const secret =
+            encryptionEnabled && options.encryption
+              ? decryptIfNeeded(delivery.webhookSecret, options.encryption)
+              : delivery.webhookSecret;
+          const timestamp = Math.floor(now.getTime() / 1000).toString();
+          const signaturePayload = `${timestamp}.${payloadBody}`;
+          const signature = createHmac('sha256', secret)
+            .update(signaturePayload)
+            .digest('hex');
+
+          headers['X-Orchestra-Timestamp'] = timestamp;
+          headers['X-Orchestra-Signature'] = `sha256=${signature}`;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+        let response: Response;
+        try {
+          response = await fetch(delivery.webhookUrl, {
+            method: 'POST',
+            headers,
+            body: payloadBody,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        responseCode = response.status;
+        success = response.ok;
+        if (!response.ok) {
+          errorMessage = response.statusText || `HTTP ${response.status}`;
+        }
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : 'Webhook delivery failed';
       }
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-      let response: Response;
-      try {
-        response = await fetch(delivery.webhookUrl, {
-          method: 'POST',
-          headers,
-          body: payloadBody,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
+      const shouldFail = !success && attemptNumber >= MAX_ATTEMPTS;
+      const updateData = {
+        status: success ? 'success' : shouldFail ? 'failed' : 'pending',
+        attempts: attemptNumber,
+        lastAttemptAt: now,
+        nextAttemptAt: success ? now : getNextAttemptAt(now, attemptNumber),
+        responseCode,
+        error: errorMessage ? normalizeError(errorMessage) : null,
+        updatedAt: now,
+      } as const;
 
-      responseCode = response.status;
-      success = response.ok;
-      if (!response.ok) {
-        errorMessage = response.statusText || `HTTP ${response.status}`;
-      }
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Webhook delivery failed';
-    }
-
-    const shouldFail = !success && attemptNumber >= MAX_ATTEMPTS;
-    const updateData = {
-      status: success ? 'success' : shouldFail ? 'failed' : 'pending',
-      attempts: attemptNumber,
-      lastAttemptAt: now,
-      nextAttemptAt: success ? now : getNextAttemptAt(now, attemptNumber),
-      responseCode,
-      error: errorMessage ? normalizeError(errorMessage) : null,
-      updatedAt: now,
-    } as const;
-
-    await db
-      .update(webhookDeliveries)
-      .set(updateData)
-      .where(eq(webhookDeliveries.id, delivery.id));
-  }
+      await db
+        .update(webhookDeliveries)
+        .set(updateData)
+        .where(eq(webhookDeliveries.id, delivery.id));
+    })
+  );
 
   return dueDeliveries.length;
 }
