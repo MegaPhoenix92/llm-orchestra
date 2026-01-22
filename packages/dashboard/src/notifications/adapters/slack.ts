@@ -13,6 +13,15 @@ import type {
 } from '../types.js';
 
 /**
+ * Default timeout for fetch requests (30 seconds)
+ *
+ * TODO: DRY - Extract this constant and the fetchWithTimeout helper to a shared
+ * module (e.g., src/notifications/adapters/shared.ts or src/utils/fetch.ts).
+ * This pattern is duplicated across slack.ts, email.ts, and pagerduty.ts.
+ */
+const FETCH_TIMEOUT_MS = 30000;
+
+/**
  * Slack Block Kit element structure for context blocks
  */
 interface SlackContextElement {
@@ -59,13 +68,18 @@ export class SlackAdapter implements NotificationChannelAdapter {
   ): Promise<DeliveryResult> {
     const config = channel.config as SlackConfig;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
       const message = this.buildMessage(config, payload);
       const response = await fetch(config.webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(message),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       // Slack webhooks return 'ok' on success
       const responseText = await response.text();
@@ -86,6 +100,10 @@ export class SlackAdapter implements NotificationChannelAdapter {
         retryable: response.status >= 500 || response.status === 429,
       };
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout', retryable: true };
+      }
       const message = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -97,6 +115,9 @@ export class SlackAdapter implements NotificationChannelAdapter {
 
   async testConnection(channel: NotificationChannel): Promise<DeliveryResult> {
     const config = channel.config as SlackConfig;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
       const testMessage: SlackMessage = {
@@ -131,7 +152,9 @@ export class SlackAdapter implements NotificationChannelAdapter {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(testMessage),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const responseText = await response.text();
 
@@ -146,6 +169,10 @@ export class SlackAdapter implements NotificationChannelAdapter {
         retryable: false,
       };
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout', retryable: false };
+      }
       const message = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -292,13 +319,13 @@ export class SlackAdapter implements NotificationChannelAdapter {
   private getSeverityInfo(severity: string): { emoji: string; color: string } {
     switch (severity) {
       case 'critical':
-        return { emoji: '[CRITICAL]', color: '#FF0000' };
+        return { emoji: ':red_circle:', color: '#FF0000' };
       case 'warning':
-        return { emoji: '[WARNING]', color: '#FFCC00' };
+        return { emoji: ':large_yellow_circle:', color: '#FFCC00' };
       case 'info':
-        return { emoji: '[INFO]', color: '#0066FF' };
+        return { emoji: ':large_blue_circle:', color: '#0066FF' };
       default:
-        return { emoji: '[ALERT]', color: '#808080' };
+        return { emoji: ':white_circle:', color: '#808080' };
     }
   }
 

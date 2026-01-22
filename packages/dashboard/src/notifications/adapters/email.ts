@@ -17,6 +17,11 @@ import type {
 } from '../types.js';
 
 /**
+ * Default timeout for fetch requests (30 seconds)
+ */
+const FETCH_TIMEOUT_MS = 30000;
+
+/**
  * Supported email provider types
  */
 const EMAIL_PROVIDERS = ['smtp', 'sendgrid', 'resend'] as const;
@@ -214,7 +219,7 @@ export class EmailAdapter implements NotificationChannelAdapter {
 
       const result = await transporter.sendMail({
         from: config.fromName
-          ? `"${config.fromName}" <${config.fromEmail}>`
+          ? `"${config.fromName.replace(/"/g, '\\"')}" <${config.fromEmail}>`
           : config.fromEmail,
         to: config.recipients.join(', '),
         replyTo: config.replyTo,
@@ -262,6 +267,9 @@ export class EmailAdapter implements NotificationChannelAdapter {
     html: string,
     text: string
   ): Promise<DeliveryResult> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
       const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
         method: 'POST',
@@ -286,7 +294,9 @@ export class EmailAdapter implements NotificationChannelAdapter {
             { type: 'text/html', value: html },
           ],
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (response.ok || response.status === 202) {
         const messageId = response.headers.get('X-Message-Id');
@@ -305,6 +315,10 @@ export class EmailAdapter implements NotificationChannelAdapter {
         retryable: response.status >= 500 || response.status === 429,
       };
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout', retryable: true };
+      }
       const message = error instanceof Error ? error.message : 'SendGrid send failed';
       return {
         success: false,
@@ -325,6 +339,9 @@ export class EmailAdapter implements NotificationChannelAdapter {
     html: string,
     text: string
   ): Promise<DeliveryResult> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -334,7 +351,7 @@ export class EmailAdapter implements NotificationChannelAdapter {
         },
         body: JSON.stringify({
           from: config.fromName
-            ? `${config.fromName} <${config.fromEmail}>`
+            ? `"${config.fromName.replace(/"/g, '\\"')}" <${config.fromEmail}>`
             : config.fromEmail,
           to: config.recipients,
           reply_to: config.replyTo,
@@ -342,7 +359,9 @@ export class EmailAdapter implements NotificationChannelAdapter {
           html,
           text,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = (await response.json()) as { id: string };
@@ -361,6 +380,10 @@ export class EmailAdapter implements NotificationChannelAdapter {
         retryable: response.status >= 500 || response.status === 429,
       };
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout', retryable: true };
+      }
       const message = error instanceof Error ? error.message : 'Resend send failed';
       return {
         success: false,

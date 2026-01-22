@@ -21,6 +21,11 @@ import type {
 const PAGERDUTY_EVENTS_API = 'https://events.pagerduty.com/v2/enqueue';
 
 /**
+ * Default timeout for fetch requests (30 seconds)
+ */
+const FETCH_TIMEOUT_MS = 30000;
+
+/**
  * PagerDuty event types
  */
 type PagerDutyEventAction = 'trigger' | 'acknowledge' | 'resolve';
@@ -204,38 +209,51 @@ export class PagerDutyAdapter implements NotificationChannelAdapter {
    * Send event to PagerDuty Events API v2
    */
   private async sendEvent(event: PagerDutyEvent): Promise<DeliveryResult> {
-    const response = await fetch(PAGERDUTY_EVENTS_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(event),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    if (response.ok) {
-      const data = (await response.json()) as PagerDutyResponse;
-      return {
-        success: true,
-        statusCode: response.status,
-        externalId: data.dedup_key,
-      };
-    }
-
-    let errorMessage = `HTTP ${response.status}`;
     try {
-      const errorData = (await response.json()) as { message?: string; errors?: string[] };
-      errorMessage = errorData.message || errorData.errors?.join(', ') || errorMessage;
-    } catch {
-      // Ignore JSON parse errors
-    }
+      const response = await fetch(PAGERDUTY_EVENTS_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    return {
-      success: false,
-      statusCode: response.status,
-      error: errorMessage,
-      // Rate limiting and server errors are retryable
-      retryable: response.status === 429 || response.status >= 500,
-    };
+      if (response.ok) {
+        const data = (await response.json()) as PagerDutyResponse;
+        return {
+          success: true,
+          statusCode: response.status,
+          externalId: data.dedup_key,
+        };
+      }
+
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorData = (await response.json()) as { message?: string; errors?: string[] };
+        errorMessage = errorData.message || errorData.errors?.join(', ') || errorMessage;
+      } catch {
+        // Ignore JSON parse errors
+      }
+
+      return {
+        success: false,
+        statusCode: response.status,
+        error: errorMessage,
+        // Rate limiting and server errors are retryable
+        retryable: response.status === 429 || response.status >= 500,
+      };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: 'Request timeout', retryable: true };
+      }
+      throw error;
+    }
   }
 
   /**

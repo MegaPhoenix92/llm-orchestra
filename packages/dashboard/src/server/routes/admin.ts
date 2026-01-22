@@ -2184,6 +2184,11 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
         updates.name = typeof body.name === 'string' ? body.name.trim() : body.name;
       }
 
+      // Channel type cannot be changed after creation
+      if (body.type && body.type !== channel.type) {
+        return c.json({ error: 'Channel type cannot be changed after creation' }, 400);
+      }
+
       // Handle config update with proper validation order:
       // 1. Decrypt existing -> 2. Merge (replaces placeholders) -> 3. Validate merged -> 4. Encrypt
       if (body.config !== undefined) {
@@ -2192,7 +2197,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Hono {
           return c.json({ error: 'config cannot be null or empty; omit the field to keep existing config' }, 400);
         }
 
-        const effectiveType = body.type || channel.type;
+        const effectiveType = channel.type;
 
         // Step 1: Decrypt existing config to get real values for merge
         const decryptedExistingConfig = decryptChannelConfig(

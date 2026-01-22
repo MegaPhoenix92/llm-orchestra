@@ -122,70 +122,65 @@ async function enqueueAlertNotifications(
   trigger: AlertTrigger,
   rule: { id: string; name: string; type: AlertRuleType; threshold: string | null; windowMinutes: number | null }
 ): Promise<void> {
-  try {
-    // Fetch project and organization details
-    const projectResult = await db
-      .select({
-        project: projects,
-        organization: organizations,
-      })
-      .from(projects)
-      .innerJoin(organizations, eq(projects.orgId, organizations.id))
-      .where(eq(projects.id, trigger.projectId))
-      .limit(1);
+  // Note: Errors propagate to caller's .catch() handler - no inner try/catch needed
+  // Fetch project and organization details
+  const projectResult = await db
+    .select({
+      project: projects,
+      organization: organizations,
+    })
+    .from(projects)
+    .innerJoin(organizations, eq(projects.orgId, organizations.id))
+    .where(eq(projects.id, trigger.projectId))
+    .limit(1);
 
-    if (projectResult.length === 0) {
-      console.error('[Alerts] Project not found for notification:', trigger.projectId);
-      return;
-    }
+  if (projectResult.length === 0) {
+    throw new Error(`Project not found for notification: ${trigger.projectId}`);
+  }
 
-    const { project, organization } = projectResult[0];
-    const severity = determineSeverity(trigger.value, trigger.threshold, trigger.type);
+  const { project, organization } = projectResult[0];
+  const severity = determineSeverity(trigger.value, trigger.threshold, trigger.type);
 
-    // Build the notification payload
-    const payload: NotificationPayload = {
-      alertRule: {
-        id: rule.id,
-        name: rule.name,
-        type: rule.type,
-        threshold: trigger.threshold,
-        windowMinutes: trigger.windowMinutes,
-      },
-      alertEvent: {
-        id: trigger.eventId,
-        triggeredAt: trigger.createdAt,
-        currentValue: trigger.value,
-        severity,
-      },
-      project: {
-        id: project.id,
-        name: project.name,
-      },
-      organization: {
-        id: organization.id,
-        name: organization.name,
-      },
-      // Dashboard URL - use environment variable or default
-      dashboardUrl: `${process.env.DASHBOARD_URL || 'http://localhost:3030'}/projects/${project.id}/alerts/${trigger.eventId}`,
-    };
+  // Build the notification payload
+  const payload: NotificationPayload = {
+    alertRule: {
+      id: rule.id,
+      name: rule.name,
+      type: rule.type,
+      threshold: trigger.threshold,
+      windowMinutes: trigger.windowMinutes,
+    },
+    alertEvent: {
+      id: trigger.eventId,
+      triggeredAt: trigger.createdAt,
+      currentValue: trigger.value,
+      severity,
+    },
+    project: {
+      id: project.id,
+      name: project.name,
+    },
+    organization: {
+      id: organization.id,
+      name: organization.name,
+    },
+    // Dashboard URL - use environment variable or default
+    dashboardUrl: `${process.env.DASHBOARD_URL || 'http://localhost:3030'}/projects/${project.id}/alerts/${trigger.eventId}`,
+  };
 
-    // Enqueue notifications for all matching channels
-    const deliveryIds = await enqueueNotificationDeliveries(
-      db,
-      trigger.projectId,
-      'alert.triggered',
-      trigger.eventId,
-      payload
+  // Enqueue notifications for all matching channels
+  const deliveryIds = await enqueueNotificationDeliveries(
+    db,
+    trigger.projectId,
+    'alert.triggered',
+    trigger.eventId,
+    payload
+  );
+
+  if (deliveryIds.length > 0) {
+    console.log(
+      `[Alerts] Enqueued ${deliveryIds.length} notification(s) for alert ${trigger.eventId}`
     );
-
-    if (deliveryIds.length > 0) {
-      console.log(
-        `[Alerts] Enqueued ${deliveryIds.length} notification(s) for alert ${trigger.eventId}`
-      );
-    }
-  } catch (error) {
-    // Log error but don't throw - notifications should not block alert recording
-    console.error('[Alerts] Failed to enqueue notifications:', error);
   }
 }
 
