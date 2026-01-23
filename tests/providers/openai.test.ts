@@ -13,19 +13,19 @@ import {
 import type { ProviderCredentials, Message } from '../../src/types/index.js';
 
 // Mock the OpenAI SDK
+// Note: Using a class mock because Vitest 4 requires constructable mocks for `new` calls
 vi.mock('openai', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      chat: {
-        completions: {
-          create: vi.fn(),
-        },
+  const MockOpenAI = vi.fn(function (this: any) {
+    this.chat = {
+      completions: {
+        create: vi.fn(),
       },
-      models: {
-        list: vi.fn(),
-      },
-    })),
-  };
+    };
+    this.models = {
+      list: vi.fn(),
+    };
+  });
+  return { default: MockOpenAI };
 });
 
 describe('OpenAIProvider', () => {
@@ -51,7 +51,11 @@ describe('OpenAIProvider', () => {
       },
     };
 
-    vi.mocked(OpenAI).mockImplementation(() => mockClient as any);
+    // Use a regular function (not arrow) because `new` requires a constructable function
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      Object.assign(this, mockClient);
+      return this;
+    } as any);
 
     provider = new OpenAIProvider(mockCredentials);
   });

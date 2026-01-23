@@ -12,12 +12,12 @@ import {
 import type { ProviderCredentials, Message } from '../../src/types/index.js';
 
 // Mock the Google Generative AI SDK
+// Note: Using a class mock because Vitest 4 requires constructable mocks for `new` calls
 vi.mock('@google/generative-ai', () => {
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: vi.fn(),
-    })),
-  };
+  const MockGoogleGenerativeAI = vi.fn(function (this: any) {
+    this.getGenerativeModel = vi.fn();
+  });
+  return { GoogleGenerativeAI: MockGoogleGenerativeAI };
 });
 
 describe('GoogleProvider', () => {
@@ -45,7 +45,11 @@ describe('GoogleProvider', () => {
       getGenerativeModel: vi.fn().mockReturnValue(mockModel),
     };
 
-    vi.mocked(GoogleGenerativeAI).mockImplementation(() => mockClient as any);
+    // Use a regular function (not arrow) because `new` requires a constructable function
+    vi.mocked(GoogleGenerativeAI).mockImplementation(function (this: any) {
+      Object.assign(this, mockClient);
+      return this;
+    } as any);
 
     provider = new GoogleProvider(mockCredentials);
   });

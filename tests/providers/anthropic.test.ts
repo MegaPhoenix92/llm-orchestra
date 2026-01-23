@@ -13,14 +13,14 @@ import {
 import type { ProviderCredentials, Message } from '../../src/types/index.js';
 
 // Mock the Anthropic SDK
+// Note: Using a class mock because Vitest 4 requires constructable mocks for `new` calls
 vi.mock('@anthropic-ai/sdk', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: {
-        create: vi.fn(),
-      },
-    })),
-  };
+  const MockAnthropic = vi.fn(function (this: any) {
+    this.messages = {
+      create: vi.fn(),
+    };
+  });
+  return { default: MockAnthropic };
 });
 
 describe('AnthropicProvider', () => {
@@ -42,8 +42,11 @@ describe('AnthropicProvider', () => {
       },
     };
 
-    // Make constructor return our mock
-    vi.mocked(Anthropic).mockImplementation(() => mockClient as any);
+    // Use a regular function (not arrow) because `new` requires a constructable function
+    vi.mocked(Anthropic).mockImplementation(function (this: any) {
+      Object.assign(this, mockClient);
+      return this;
+    } as any);
 
     provider = new AnthropicProvider(mockCredentials);
   });
