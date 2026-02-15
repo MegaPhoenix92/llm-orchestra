@@ -415,8 +415,8 @@ describe('OpenAIProvider', () => {
 
     it('should_returnDefaultPricing_when_unknownModel', () => {
       const cost = provider.getModelCost('unknown-gpt-model');
-      expect(cost.inputPer1k).toBe(0.01);
-      expect(cost.outputPer1k).toBe(0.03);
+      expect(cost.inputPer1k).toBe(0.005);
+      expect(cost.outputPer1k).toBe(0.015);
     });
   });
 
