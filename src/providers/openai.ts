@@ -66,17 +66,19 @@ export class OpenAIProvider extends BaseProvider {
       totalTokens: response.usage?.total_tokens ?? 0,
     };
 
-    // Extract tool calls if present
+    // Extract tool calls if present (v6: tool_calls is a union of function | custom)
     let toolCalls: ToolCall[] | undefined;
     if (choice.message.tool_calls) {
-      toolCalls = choice.message.tool_calls.map((tc) => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: {
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        },
-      }));
+      toolCalls = choice.message.tool_calls
+        .filter((tc): tc is OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall => tc.type === 'function')
+        .map((tc) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          },
+        }));
     }
 
     return {
