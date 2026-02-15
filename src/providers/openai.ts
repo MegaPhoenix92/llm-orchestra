@@ -178,7 +178,7 @@ export class OpenAIProvider extends BaseProvider {
         return pricing;
       }
     }
-    return { inputPer1k: 0.005, outputPer1k: 0.03 }; // Default to GPT-4o pricing
+    return MODEL_PRICING['gpt-4o']; // Default to GPT-4o pricing
   }
 
   private convertMessages(messages: Message[]): OpenAI.Chat.ChatCompletionMessageParam[] {
