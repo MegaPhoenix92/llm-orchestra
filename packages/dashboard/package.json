@@ -79,7 +79,7 @@
     "hono": "^4.0.0",
     "jsonwebtoken": "^9.0.0",
     "nanoid": "^5.0.0",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "^8.0.4",
     "open": "^11.0.0",
     "openid-client": "^6.1.0",
     "pg": "^8.11.3"
