@@ -76,7 +76,7 @@
     "cli-table3": "^0.6.3",
     "commander": "^14.0.2",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
+    "hono": "^4.12.16",
     "jsonwebtoken": "^9.0.0",
     "nanoid": "^5.0.0",
     "nodemailer": "^7.0.12",
